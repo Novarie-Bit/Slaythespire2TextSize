@@ -1,6 +1,6 @@
 # Text Size Setting: a Slay the Spire 2 mod
 
-Adds a **Text Size** option to the game's own settings menu so you can make text bigger (or smaller).
+Adds a **Text Size** option to the game's own settings menu so text is easier to read.
 
 ```
 Settings > General
@@ -8,97 +8,93 @@ Settings > General
   Text Size                                 [ - ]   120%   [ + ]
 ```
 
-- Anywhere from **70% to 200%** in 10% steps.
-- The change applies immediately, including on the settings screen itself, and is remembered between sessions.
-- Standalone: no BaseLib or other mods needed. Doesn't change gameplay or saves (`affects_gameplay: false`).
+- Anywhere from **70% to 200%**. Changes apply instantly and are remembered.
+- Works on its own: no other mods needed. Doesn't change gameplay or saves.
 
-## Installing
+**Players:** subscribe on the Steam Workshop, start the game, and say yes if it asks about loading mods. That's all.
 
-**From the Steam Workshop:** subscribe, launch the game, and accept the mod-loading prompt if it appears.
+---
 
-**Manually:** unzip `TextSizeSetting-v<version>.zip` into your game folder so you end up with:
+## Uploading to the Steam Workshop (mod owner only)
 
-```
-Slay the Spire 2/
-  mods/
-    TextSizeSetting/
-      TextSizeSetting.json
-      TextSizeSetting.dll
-```
+Only you, the owner, upload this. Players never need anything from this page. If someone else ran the upload, it would create a separate copy on *their* account. Nobody else can change your Workshop item.
 
-Your setting is saved in the game's user data folder (`user://TextSizeMod/settings.cfg`), not in `mods/`.
+You don't need to install or build anything. The finished mod is already in `workshop/content/`.
 
-## Building
+### 1. Get the files
 
-Requirements: the [.NET 9 SDK](https://dotnet.microsoft.com/download/dotnet/9.0) and Slay the Spire 2 installed. The mod compiles against the `sts2.dll`, `GodotSharp.dll` and `0Harmony.dll` that ship with the game.
+On this repository's GitHub page, click the green **Code** button, then **Download ZIP**. Unzip it somewhere you'll keep, such as your Documents folder. Keep this folder; you'll need it for future updates.
 
-```powershell
-# Windows (auto-detects the default Steam library)
-./scripts/package.ps1
+### 2. Try it in your game (optional, recommended)
 
-# Game in another library? Point at it, and optionally install straight into the game:
-./scripts/package.ps1 -GameDir "D:\SteamLibrary\steamapps\common\Slay the Spire 2" -Install
-```
+1. Double-click **`Test in my game.bat`**. It finds your game and copies the mod into its `mods` folder.
+2. Start Slay the Spire 2, open **Settings > General**, and try the **Text Size** row.
+3. Close the game and double-click **`Remove test copy from my game.bat`**. Otherwise the game sees the mod twice once you subscribe to it on the Workshop.
 
-```bash
-# Linux
-scripts/package.sh --game-dir "$HOME/.local/share/Steam/steamapps/common/Slay the Spire 2" --install
-```
+### 3. Upload
 
-This produces:
+1. Make sure **Steam is running** and you're logged in.
+2. Double-click **`Upload to Steam Workshop.bat`**.
+3. When asked who can see it, type **1** (only you) the first time. Subscribe to it in Steam and check it works in game.
+4. Double-click **`Upload to Steam Workshop.bat`** again and type **2** to make it public for everyone.
 
-| Output | What it's for |
+The first time, the script downloads MegaCrit's official uploader ([megacrit/sts2-mod-uploader](https://github.com/megacrit/sts2-mod-uploader)) for you. If it can't, it opens the download page and tells you where to unzip it.
+
+**If Windows shows "Windows protected your PC":** click **More info**, then **Run anyway**. Windows shows this for any script downloaded from the internet.
+
+**If it's your first Workshop upload ever:** Steam hides the item until you accept the Workshop agreement. The item's page has a notice linking to it.
+
+### After the first upload
+
+The upload creates `workshop/mod_id.txt`, which holds your Workshop item's number. It's how later uploads update the same item instead of making a duplicate. Don't delete it. Also add it to this repository (or ask Claude to) so a fresh download keeps it.
+
+### Updating the mod later
+
+Get the new version of this repository, make sure `workshop/mod_id.txt` is in it, then double-click **`Upload to Steam Workshop.bat`** and pick **2**.
+
+---
+
+## For developers
+
+### Layout
+
+| Path | What it is |
 | --- | --- |
-| `dist/TextSizeSetting/` | The mod folder (manifest + DLL) |
-| `dist/TextSizeSetting-v1.0.0.zip` | Install-ready zip for Nexus or GitHub releases |
-| `workshop/content/` | Exactly what gets uploaded to the Steam Workshop |
+| `src/TextSize/` | Mod source (C#, Harmony) |
+| `mod/TextSizeSetting.json` | Mod manifest read by the game's loader |
+| `workshop/` | Steam Workshop uploader workspace: `workshop.json`, `image.png`, `content/` (the built mod) |
+| `*.bat`, `scripts/windows/EasyTools.ps1` | Double-click test, remove and upload helpers |
+| `ci/` | Stand-in game assemblies and the release build |
+| `tests/GodotHeadless/` | Tests that run the built DLL inside headless Godot 4.5.1 |
 
-## Uploading to the Steam Workshop
+### Building
 
-MegaCrit's official uploader is [megacrit/sts2-mod-uploader](https://github.com/megacrit/sts2-mod-uploader). This repo's `workshop/` folder is already laid out as an uploader workspace:
+`ci/build-release.sh` rebuilds `workshop/content/` without the game installed (needs the .NET 9 SDK). It compiles against small stand-ins for the game's types. It then rewrites the DLL's references to `sts2`, `GodotSharp` and `0Harmony` to version 0.0.0.0, so the same DLL loads whichever versions the installed game ships.
 
-```
-workshop/
-  workshop.json   title, description, visibility, change notes
-  image.png       Workshop preview image (must be under 1 MB)
-  content/        filled in by scripts/package.*
-```
+The mod looks up every game type it touches by name at runtime. The only compile-time dependency on `sts2.dll` is the `[ModInitializer]` attribute, so game updates that move things around disable a single feature at worst. Problems are logged with a `[TextSizeSetting]` prefix.
 
-1. Run `./scripts/package.ps1` so `workshop/content/` holds a fresh build.
-2. Download `ModUploader` from the uploader's [releases page](https://github.com/megacrit/sts2-mod-uploader/releases).
-3. Make sure Steam is running and you're logged in to the account that owns the game.
-4. From the folder with `ModUploader.exe`, run:
-   ```powershell
-   .\ModUploader.exe upload -w "C:\path\to\Slaythespire2TextSize\workshop"
-   ```
-5. On the first upload the tool creates a Workshop item and writes `workshop/mod_id.txt`. **Commit that file**, because later uploads use it to update the same item instead of creating a new one.
-6. `workshop.json` starts with `"visibility": "private"`. Subscribe to your own item and check it works in game, then change it to `"public"` and upload again (or switch visibility on the Workshop page).
+To build against a real install instead, use `scripts/package.ps1 -GameDir "...\Slay the Spire 2" -Install` (or `scripts/package.sh`).
 
-**Updating:** bump `version` in `mod/TextSizeSetting.json`, write a `changeNote` in `workshop/workshop.json`, run the package script, then upload again.
-
-## How it works
+### How it works
 
 | File | Role |
 | --- | --- |
-| `src/TextSize/ModEntry.cs` | `[ModInitializer]` entry point: loads the setting, applies Harmony patches, starts the scaler |
-| `src/TextSize/TextScaler.cs` | Scales font sizes across the UI and re-applies them when the setting changes |
-| `src/TextSize/Patches/FontSizePatches.cs` | Intercepts font sizes set from code (`AddThemeFontSizeOverride`, `LabelSettings.FontSize`, the game's auto-sizing `MegaLabel`/`MegaRichTextLabel`) |
-| `src/TextSize/Patches/SettingsScreenPatch.cs` | Hooks `NSettingsScreen._Ready` to add the row |
-| `src/TextSize/UI/TextSizeSettingRow.cs` | Builds the row, styled after the native settings rows, with controller/keyboard focus |
-| `src/TextSize/TextSizeConfig.cs` | Saves and loads the chosen percentage |
+| `ModEntry.cs` | `[ModInitializer]` entry point. Loads the setting and applies each Harmony patch independently |
+| `TextScaler.cs` | Scales font sizes across the UI and re-applies them when the setting changes |
+| `Patches/FontSizePatches.cs` | Intercepts font sizes set from code: `AddThemeFontSizeOverride`, `LabelSettings.FontSize`, and the game's auto-sizing `MegaLabel`/`MegaRichTextLabel` |
+| `Patches/SettingsScreenPatch.cs` | Hooks `NSettingsScreen._Ready` to add the row |
+| `UI/TextSizeSettingRow.cs` | The row itself, styled after the native rows, with controller and keyboard focus |
+| `TextSizeConfig.cs` | Saves the percentage to `user://TextSizeMod/settings.cfg` |
 
-Every font size the game sets is treated as the base size. It's stored on the node and replaced with the scaled size. Sizes baked into scenes and themes get picked up when a node enters the scene tree. Changing the setting re-applies the new scale to everything on screen from those stored base sizes, so repeated changes never compound.
+Every font size the game sets is stored on its node as the base size and replaced with the scaled size. Sizes baked into scenes and themes are picked up when a node enters the scene tree. Changing the setting re-applies everything from the stored base sizes, so changes never compound.
 
-**Known limitation:** the game auto-shrinks some text to fit a fixed box (card descriptions, for example). That text can only get as big as its box allows.
+**Known limitation:** text the game auto-shrinks to fit a fixed box (card descriptions, for example) can only grow as far as its box allows.
 
-## Testing
+### Testing
 
-- `ci/build-with-stubs.sh` compile-checks the mod against small stand-ins for the game's types, so no game install is needed.
-- `tests/run-godot-tests.sh` runs the scaler and the settings row inside a real headless **Godot 4.5.1 (.NET)**, the engine version the game uses. It checks scaling, restoring, persistence, clamping, row placement, focus wiring and live updates. Set `GODOT` to the Godot .NET binary first.
+```bash
+ci/build-release.sh
+GODOT=/path/to/Godot_v4.5.1-stable_mono_linux.x86_64 tests/run-godot-tests.sh
+```
 
-GitHub Actions runs both on every push (`.github/workflows/build.yml`). Neither one replaces trying the mod in the real game.
-
-## Compatibility notes
-
-- Built against STS2's modding API as of Major Update 2: an external `<id>.json` manifest next to `<id>.dll`, with `[ModInitializer]` and Harmony.
-- If a game update renames the settings screen internals, the Text Size row might not appear, but the game won't crash. Errors are logged with a `[TextSizeSetting]` prefix in the game log.
+The tests load the exact DLL from `workshop/content/` into a real Godot 4.5.1 (.NET) engine, the version the game uses. They check scaling, restoring, persistence, clamping, row placement, focus and live updates. GitHub Actions runs them on every push. They don't replace trying the mod in the real game.

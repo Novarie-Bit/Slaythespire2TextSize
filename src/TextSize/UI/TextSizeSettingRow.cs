@@ -1,5 +1,5 @@
 using Godot;
-using MegaCrit.Sts2.Core.Nodes.Screens.Settings;
+using HarmonyLib;
 
 namespace TextSize.UI;
 
@@ -26,10 +26,11 @@ internal static class TextSizeSettingRow
     // Anchors we try to insert above, in order. Falls back to the end of the list.
     private static readonly string[] InsertBeforeCandidates = ["ModdingDivider", "SendFeedbackDivider", "CreditsDivider"];
 
-    public static void AddTo(NSettingsScreen screen)
+    public static void AddTo(Control screen)
     {
-        var panel = screen.GetNodeOrNull<NSettingsPanel>("%GeneralSettings") ?? FindFirst<NSettingsPanel>(screen);
-        var content = panel?.Content;
+        var panel = screen.GetNodeOrNull<Control>("%GeneralSettings")
+                    ?? FindFirst<Control>(screen, node => node.GetType().Name == "NSettingsPanel");
+        var content = panel is null ? null : GetPanelContent(panel);
         if (panel is null || content is null)
         {
             ModEntry.LogError("Couldn't find the General settings panel.");
@@ -41,7 +42,7 @@ internal static class TextSizeSettingRow
 
         KeepPanelSizedToContent(panel, content);
 
-        var nativeLabel = FindFirst<RichTextLabel>(content);
+        var nativeLabel = FindFirst<RichTextLabel>(content, _ => true);
         var divider = CreateDivider(content);
         var row = CreateRow(nativeLabel);
 
@@ -309,14 +310,22 @@ internal static class TextSizeSettingRow
         return node is Control { Visible: true, FocusMode: Control.FocusModeEnum.All } control ? control : null;
     }
 
-    private static T? FindFirst<T>(Node root) where T : Node
+    /// <summary>The panel's rows live in its <c>Content</c> VBoxContainer.</summary>
+    private static VBoxContainer? GetPanelContent(Control panel)
+    {
+        var property = AccessTools.Property(panel.GetType(), "Content");
+        return property?.GetValue(panel) as VBoxContainer
+               ?? FindFirst<VBoxContainer>(panel, _ => true);
+    }
+
+    private static T? FindFirst<T>(Node root, Func<T, bool> predicate) where T : Node
     {
         var queue = new Queue<Node>();
         queue.Enqueue(root);
         while (queue.Count > 0)
         {
             var node = queue.Dequeue();
-            if (node != root && node is T match)
+            if (node != root && node is T match && predicate(match))
                 return match;
 
             foreach (var child in node.GetChildren())

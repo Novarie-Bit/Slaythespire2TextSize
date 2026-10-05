@@ -40,6 +40,11 @@
            Text="Could not find sts2.dll. Pass -p:GameDir=&quot;path to Slay the Spire 2&quot; (or -p:Sts2DataDir=&quot;path to the data_sts2_* folder&quot;)." />
   </Target>
 
+  <ItemGroup>
+    <!-- Lets the headless Godot tests reach internal types. -->
+    <InternalsVisibleTo Include="TextSizeTest" />
+  </ItemGroup>
+
   <!-- Game-owned assemblies: compile against them but never ship copies. -->
   <ItemGroup>
     <Reference Include="sts2">

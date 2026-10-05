@@ -1,15 +1,17 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <!--
-    Compile-only stand-ins for the handful of game types the mod uses, so CI can check that
-    the mod builds without a copy of Slay the Spire 2. The output folder (sts2.dll,
-    GodotSharp.dll, 0Harmony.dll) is passed to the mod as -p:Sts2DataDir=...
-    These stubs are never shipped or loaded by the game.
+    Stand-ins for the handful of game types the mod uses, so the mod can be built and tested
+    without a copy of Slay the Spire 2. The output folder (sts2.dll, GodotSharp.dll,
+    0Harmony.dll) is passed to the mod as -p:Sts2DataDir=..., and the headless Godot tests load
+    this sts2.dll in place of the game's. These stubs are never shipped.
   -->
 
   <PropertyGroup>
     <TargetFramework>net9.0</TargetFramework>
     <AssemblyName>sts2</AssemblyName>
+    <!-- 0.0.0.0 so the mod's reference to sts2 matches any real game version. -->
+    <AssemblyVersion>0.0.0.0</AssemblyVersion>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>

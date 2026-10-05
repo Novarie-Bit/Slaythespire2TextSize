@@ -36,6 +36,10 @@ if ($LASTEXITCODE -ne 0) { throw "Build failed." }
 $dll = Join-Path $root "src/TextSize/bin/Release/net9.0/$modId.dll"
 if (-not (Test-Path $dll)) { throw "Build output not found: $dll" }
 
+# Make the DLL accept any version of the game's assemblies (see ci/RetargetReferences).
+& dotnet run --project (Join-Path $root "ci/RetargetReferences/RetargetReferences.csproj") -c Release -- $dll
+if ($LASTEXITCODE -ne 0) { throw "Retargeting references failed." }
+
 # dist/TextSizeSetting
 $dist = Join-Path $root "dist"
 $stage = Join-Path $dist $modId

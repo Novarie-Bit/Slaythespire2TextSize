@@ -14,9 +14,9 @@ jobs:
         with:
           dotnet-version: 9.0.x
 
-      # The real game DLLs can't be redistributed, so compile against stand-ins.
-      - name: Compile against stub game assemblies
-        run: ci/build-with-stubs.sh
+      # The real game DLLs can't be redistributed, so build against stand-ins.
+      - name: Build the mod
+        run: ci/build-release.sh
 
       - name: Download Godot 4.5.1 (.NET)
         run: |

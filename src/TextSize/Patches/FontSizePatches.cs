@@ -1,14 +1,19 @@
 using System.Reflection;
 using Godot;
 using HarmonyLib;
-using MegaCrit.Sts2.addons.mega_text;
 
 namespace TextSize.Patches;
 
+// Targets are resolved in code rather than with typeof() in the attribute: attribute
+// arguments embed the exact GodotSharp version, code references don't (see ci/RetargetReferences).
+
 /// <summary>Scales every font size override set from code.</summary>
-[HarmonyPatch(typeof(Control), nameof(Control.AddThemeFontSizeOverride))]
+[HarmonyPatch]
 internal static class AddThemeFontSizeOverridePatch
 {
+    private static MethodBase TargetMethod() =>
+        AccessTools.DeclaredMethod(typeof(Control), nameof(Control.AddThemeFontSizeOverride));
+
     private static void Prefix(Control __instance, StringName name, ref int fontSize)
     {
         TextScaler.OnFontSizeOverride(__instance, name, ref fontSize);
@@ -16,9 +21,12 @@ internal static class AddThemeFontSizeOverridePatch
 }
 
 /// <summary>Scales font sizes assigned to LabelSettings resources from code.</summary>
-[HarmonyPatch(typeof(LabelSettings), nameof(LabelSettings.FontSize), MethodType.Setter)]
+[HarmonyPatch]
 internal static class LabelSettingsFontSizePatch
 {
+    private static MethodBase TargetMethod() =>
+        AccessTools.DeclaredPropertySetter(typeof(LabelSettings), nameof(LabelSettings.FontSize));
+
     private static void Prefix(LabelSettings __instance, ref int value)
     {
         TextScaler.OnLabelSettingsFontSize(__instance, ref value);
@@ -28,8 +36,9 @@ internal static class LabelSettingsFontSizePatch
 /// <summary>
 /// The game's auto-sizing labels pick a font size between their min and max and apply it
 /// through a private SetFontSize(int). If that path ever stops going through
-/// AddThemeFontSizeOverride, this re-applies the scaled size afterwards. The patch is skipped
-/// when the method doesn't exist in the installed game version.
+/// AddThemeFontSizeOverride, this re-applies the scaled size afterwards. The game types are
+/// looked up by name so the mod doesn't break if they move, and the patch is skipped when the
+/// method doesn't exist in the installed game version.
 /// </summary>
 [HarmonyPatch]
 internal static class MegaTextSetFontSizePatch
@@ -47,8 +56,12 @@ internal static class MegaTextSetFontSizePatch
 
     private static IEnumerable<MethodBase> TargetMethods()
     {
-        foreach (var type in new[] { typeof(MegaLabel), typeof(MegaRichTextLabel) })
+        foreach (var typeName in new[] { "MegaCrit.Sts2.addons.mega_text.MegaLabel", "MegaCrit.Sts2.addons.mega_text.MegaRichTextLabel" })
         {
+            var type = AccessTools.TypeByName(typeName);
+            if (type is null)
+                continue;
+
             var method = AccessTools.DeclaredMethod(type, "SetFontSize", [typeof(int)]);
             if (method is not null)
                 yield return method;

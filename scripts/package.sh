@@ -35,6 +35,9 @@ dotnet "${args[@]}" "${extra[@]}"
 dll="$root/src/TextSize/bin/Release/net9.0/$mod_id.dll"
 [[ -f "$dll" ]] || { echo "Build output not found: $dll" >&2; exit 1; }
 
+# Make the DLL accept any version of the game's assemblies (see ci/RetargetReferences).
+dotnet run --project "$root/ci/RetargetReferences/RetargetReferences.csproj" -c Release -- "$dll"
+
 stage="$root/dist/$mod_id"
 rm -rf "$stage" && mkdir -p "$stage"
 cp "$manifest" "$dll" "$stage/"

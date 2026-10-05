@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Builds and runs the headless Godot tests.
+# Runs the headless Godot tests against the built mod (run ci/build-release.sh first).
 # Needs the .NET SDK and Godot 4.5.1 (.NET / "mono" build). Point GODOT at the Godot binary:
 #   GODOT=/path/to/Godot_v4.5.1-stable_mono_linux.x86_64 tests/run-godot-tests.sh
 set -euo pipefail
