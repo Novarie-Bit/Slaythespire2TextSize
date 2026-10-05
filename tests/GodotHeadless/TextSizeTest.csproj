@@ -1,0 +1,19 @@
+<Project Sdk="Godot.NET.Sdk/4.5.1">
+  <!--
+    Headless test harness: compiles the mod's source together with small stand-ins for the
+    game types (TestStubs.cs) and runs TestRunner.cs inside a real Godot 4.5.1 (.NET) engine.
+    Run it with tests/run-godot-tests.sh.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <!-- Lets the tests run on whatever newer .NET runtime is installed. -->
+    <RollForward>Major</RollForward>
+    <EnableDynamicLoading>true</EnableDynamicLoading>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../../src/TextSize/**/*.cs" Exclude="../../src/TextSize/obj/**;../../src/TextSize/bin/**" />
+    <PackageReference Include="Lib.Harmony" Version="2.4.2" />
+  </ItemGroup>
+</Project>
