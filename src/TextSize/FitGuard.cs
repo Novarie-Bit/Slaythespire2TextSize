@@ -8,7 +8,8 @@ namespace TextSize;
 ///
 ///  1. a one-line label sitting directly on a frame tall enough for another line is allowed
 ///     to wrap onto more lines, so it can stay big;
-///  2. otherwise its size is stepped down (never below the game's normal size) until it fits.
+///  2. otherwise its size is stepped down (never below the game's normal size, or just under
+///     it with the readable font, which can run a little wider) until it fits.
 ///     If wrapping didn't help even at normal size, the label goes back to one line and the
 ///     search runs again, so it never ends up worse than a plain shrink.
 ///
@@ -44,13 +45,25 @@ internal static class FitGuard
     private static readonly Dictionary<ulong, int> Suspect = new();
     private static readonly HashSet<ulong> Confirmed = new();
 
+    /// <summary>
+    /// Text can only need help fitting when it's bigger than normal, or when the readable font
+    /// (which can run a little wider than the game's) is on.
+    /// </summary>
+    public static bool Active => TextSizeConfig.Scale > 1f || TextSizeConfig.ReadableFont;
+
+    /// <summary>
+    /// The smallest scale the guard may step down to: normal size, or slightly under it with the
+    /// readable font so a wider font can still fit where the game's font just fit.
+    /// </summary>
+    public static float Floor => Math.Min(1f, TextSizeConfig.Scale) * (TextSizeConfig.ReadableFont ? 0.85f : 1f);
+
     public static void Install(SceneTree tree) => tree.ProcessFrame += OnProcessFrame;
 
     /// <summary>Checks the control after the next layout, and again whenever it resizes.</summary>
     public static void Watch(Control control)
     {
-        if (TextSizeConfig.Scale <= 1f)
-            return; // smaller-than-normal text always fits
+        if (!Active)
+            return;
 
         if (!control.HasMeta(WatchedKey))
         {
@@ -85,7 +98,7 @@ internal static class FitGuard
 
     private static void Queue(Control control)
     {
-        if (TextSizeConfig.Scale <= 1f)
+        if (!Active)
             return;
 
         lock (Lock)
@@ -170,9 +183,9 @@ internal static class FitGuard
         }
 
         var factor = TextScaler.FactorFor(control);
-        if (factor > 1f)
+        if (factor > Floor + 0.001f)
         {
-            TextScaler.SetFitFactor(control, Math.Max(1f, factor - Step));
+            TextScaler.SetFitFactor(control, Math.Max(Floor, factor - Step));
             return true;
         }
 

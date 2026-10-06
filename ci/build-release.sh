@@ -21,6 +21,7 @@ dotnet run --project "$here/RetargetReferences/RetargetReferences.csproj" -c Rel
 content="$root/workshop/content"
 rm -rf "$content" && mkdir -p "$content"
 cp "$root/mod/$mod_id.json" "$dll" "$content/"
+cp "$root/src/TextSize/Fonts/OFL.txt" "$content/AtkinsonHyperlegible-OFL.txt"
 
 stage="$root/dist/$mod_id"
 rm -rf "$stage" && mkdir -p "$stage"

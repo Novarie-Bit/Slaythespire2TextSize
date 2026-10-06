@@ -4,20 +4,30 @@ using HarmonyLib;
 namespace TextSize.UI;
 
 /// <summary>
-/// Builds the "Text Size   [-] 120% [+]" row and inserts it into the General tab of the
-/// game's settings screen. Built from plain Godot controls so it doesn't depend on the
-/// game's private scenes, but it borrows fonts and colours from the native rows so it
-/// blends in.
+/// Builds the mod's rows and inserts them into the General tab of the game's settings screen:
+///
+///   Text Size                    [-]  120%  [+]
+///   Easy-to-Read Font            [     Off     ]
+///   High-Contrast Card Text      [     On      ]
+///
+/// Built from plain Godot controls so it doesn't depend on the game's private scenes, but it
+/// borrows fonts and colours from the native rows so it blends in.
 /// </summary>
 internal static class TextSizeSettingRow
 {
     private const string RowName = "TextSizeModSetting";
+    private const string ReadableFontRowName = "TextSizeModReadableFont";
+    private const string HighContrastRowName = "TextSizeModHighContrast";
     private const string DividerName = "TextSizeModDivider";
 
     private const int DefaultLabelFontSize = 28;
     private const float RowHeight = 64f;
     private const float ButtonSize = 56f;
     private const float ValueWidth = 140f;
+    private const int Separation = 12;
+
+    // The On/Off buttons line up with the "[-] 120% [+]" group above them.
+    private const float ToggleWidth = ButtonSize * 2 + ValueWidth + Separation * 2;
 
     // Matches the cream/gold used by the native settings text.
     private static readonly Color TextColor = new(0.91f, 0.86f, 0.75f);
@@ -44,28 +54,59 @@ internal static class TextSizeSettingRow
 
         var nativeLabel = FindFirst<RichTextLabel>(content, _ => true);
         var divider = CreateDivider(content);
-        var row = CreateRow(nativeLabel);
+        Control[] rows =
+        [
+            CreateSizeRow(nativeLabel),
+            CreateToggleRow(
+                nativeLabel,
+                ReadableFontRowName,
+                "Easy-to-Read Font",
+                "Switches the game's text to Atkinson Hyperlegible, a font designed by the Braille Institute to be easy to read. Letters that look alike (like I, l and 1) are made clearly different.",
+                () => TextSizeConfig.ReadableFont,
+                TextSizeConfig.SetReadableFont),
+            CreateToggleRow(
+                nativeLabel,
+                HighContrastRowName,
+                "High-Contrast Card Text",
+                "Makes the text on cards bright white with a thick black outline. Coloured card text keeps its colour, just brighter. The rest of the game isn't changed.",
+                () => TextSizeConfig.HighContrastCards,
+                TextSizeConfig.SetHighContrastCards),
+        ];
 
+        // Divider above the block, then the rows separated by their own dividers.
         content.AddChild(divider);
-        content.AddChild(row);
+        var nodes = new List<Control> { divider };
+        for (var i = 0; i < rows.Length; i++)
+        {
+            if (i > 0)
+            {
+                var between = CreateDivider(content);
+                between.Name = DividerName + i;
+                content.AddChild(between);
+                nodes.Add(between);
+            }
+
+            content.AddChild(rows[i]);
+            nodes.Add(rows[i]);
+        }
 
         var anchor = InsertBeforeCandidates
             .Select(name => content.GetNodeOrNull<Control>(name))
             .FirstOrDefault(node => node is not null);
         if (anchor is not null)
         {
-            content.MoveChild(divider, anchor.GetIndex());
-            content.MoveChild(row, anchor.GetIndex());
+            foreach (var node in nodes)
+                content.MoveChild(node, anchor.GetIndex());
         }
 
-        Callable.From(() => WireFocus(content, row)).CallDeferred();
+        Callable.From(() => WireFocus(content, rows)).CallDeferred();
     }
 
-    private static MarginContainer CreateRow(RichTextLabel? nativeLabel)
+    private static (MarginContainer Row, HBoxContainer Box) CreateRowShell(RichTextLabel? nativeLabel, string name, string titleText, string tooltip)
     {
         var row = new MarginContainer
         {
-            Name = RowName,
+            Name = name,
             CustomMinimumSize = new Vector2(0f, RowHeight),
             MouseFilter = Control.MouseFilterEnum.Pass,
         };
@@ -78,16 +119,27 @@ internal static class TextSizeSettingRow
             Alignment = BoxContainer.AlignmentMode.Center,
             MouseFilter = Control.MouseFilterEnum.Ignore,
         };
-        hbox.AddThemeConstantOverride("separation", 12);
+        hbox.AddThemeConstantOverride("separation", Separation);
         row.AddChild(hbox);
 
-        var title = CreateLabel(nativeLabel, "Text Size");
+        var title = CreateLabel(nativeLabel, titleText);
         title.Name = "Label";
         title.SizeFlagsHorizontal = Control.SizeFlags.ExpandFill;
         title.HorizontalAlignment = HorizontalAlignment.Left;
-        title.TooltipText = "Makes in-game text larger or smaller. Some text that has to fit inside a fixed box (like card descriptions) may only grow as far as the box allows.";
+        title.TooltipText = tooltip;
         title.MouseFilter = Control.MouseFilterEnum.Pass;
         hbox.AddChild(title);
+
+        return (row, hbox);
+    }
+
+    private static MarginContainer CreateSizeRow(RichTextLabel? nativeLabel)
+    {
+        var (row, hbox) = CreateRowShell(
+            nativeLabel,
+            RowName,
+            "Text Size",
+            "Makes in-game text larger or smaller. Text never spills out of its box: where space is tight it grows as much as fits.");
 
         var decrease = CreateButton(nativeLabel, "-", "DecreaseButton");
         var value = CreateLabel(nativeLabel, "");
@@ -103,7 +155,7 @@ internal static class TextSizeSettingRow
         decrease.Pressed += () => TextSizeConfig.Step(-1);
         increase.Pressed += () => TextSizeConfig.Step(+1);
 
-        void Refresh()
+        ListenWhileOnScreen(row, () =>
         {
             if (!GodotObject.IsInstanceValid(value))
                 return;
@@ -111,20 +163,45 @@ internal static class TextSizeSettingRow
             value.Text = $"{TextSizeConfig.Percent}%";
             decrease.Disabled = TextSizeConfig.Percent <= TextSizeConfig.MinPercent;
             increase.Disabled = TextSizeConfig.Percent >= TextSizeConfig.MaxPercent;
-        }
-
-        // The settings screen can leave and re-enter the tree as menus open and close,
-        // so only listen for changes while the row is actually on screen.
-        Refresh();
-        row.TreeEntered += () =>
-        {
-            TextSizeConfig.Changed -= Refresh;
-            TextSizeConfig.Changed += Refresh;
-            Refresh();
-        };
-        row.TreeExiting += () => TextSizeConfig.Changed -= Refresh;
+        });
 
         return row;
+    }
+
+    private static MarginContainer CreateToggleRow(
+        RichTextLabel? nativeLabel, string name, string titleText, string tooltip, Func<bool> get, Action<bool> set)
+    {
+        var (row, hbox) = CreateRowShell(nativeLabel, name, titleText, tooltip);
+
+        var toggle = CreateButton(nativeLabel, "", "ToggleButton");
+        toggle.CustomMinimumSize = new Vector2(ToggleWidth, ButtonSize);
+        hbox.AddChild(toggle);
+
+        toggle.Pressed += () => set(!get());
+
+        ListenWhileOnScreen(row, () =>
+        {
+            if (GodotObject.IsInstanceValid(toggle))
+                toggle.Text = get() ? "On" : "Off";
+        });
+
+        return row;
+    }
+
+    /// <summary>
+    /// Runs <paramref name="refresh"/> now and whenever a setting changes while the row is on
+    /// screen. The settings screen can leave and re-enter the tree as menus open and close.
+    /// </summary>
+    private static void ListenWhileOnScreen(Control row, Action refresh)
+    {
+        refresh();
+        row.TreeEntered += () =>
+        {
+            TextSizeConfig.Changed -= refresh;
+            TextSizeConfig.Changed += refresh;
+            refresh();
+        };
+        row.TreeExiting += () => TextSizeConfig.Changed -= refresh;
     }
 
     private static Label CreateLabel(RichTextLabel? native, string text)
@@ -245,43 +322,52 @@ internal static class TextSizeSettingRow
     }
 
     /// <summary>
-    /// Hooks the row into controller / keyboard navigation between the native rows above and below.
+    /// Hooks the rows into controller / keyboard navigation: left/right within a row, up/down
+    /// between rows and the native rows above and below.
     /// </summary>
-    private static void WireFocus(VBoxContainer content, Control row)
+    private static void WireFocus(VBoxContainer content, Control[] rows)
     {
-        if (!GodotObject.IsInstanceValid(row) || !row.IsInsideTree())
+        var buttons = rows
+            .Where(row => GodotObject.IsInstanceValid(row) && row.IsInsideTree())
+            .Select(row => row.GetNode("ContentRow").GetChildren().OfType<Button>().ToArray())
+            .Where(row => row.Length > 0)
+            .ToArray();
+        if (buttons.Length == 0)
             return;
 
-        var decrease = row.GetNodeOrNull<Button>("ContentRow/DecreaseButton");
-        var increase = row.GetNodeOrNull<Button>("ContentRow/IncreaseButton");
-        if (decrease is null || increase is null)
-            return;
-
-        decrease.FocusNeighborRight = decrease.GetPathTo(increase);
-        increase.FocusNeighborLeft = increase.GetPathTo(decrease);
-
-        var index = row.GetIndex();
+        var first = rows[0];
+        var last = rows[^1];
         Control? above = null;
-        for (var i = index - 1; i >= 0 && above is null; i--)
+        for (var i = first.GetIndex() - 1; i >= 0 && above is null; i--)
             above = LastFocusable(content.GetChild(i));
 
         Control? below = null;
-        for (var i = index + 1; i < content.GetChildCount() && below is null; i++)
+        for (var i = last.GetIndex() + 1; i < content.GetChildCount() && below is null; i++)
             below = FirstFocusable(content.GetChild(i));
 
-        if (above is not null)
+        for (var r = 0; r < buttons.Length; r++)
         {
-            decrease.FocusNeighborTop = decrease.GetPathTo(above);
-            increase.FocusNeighborTop = increase.GetPathTo(above);
-            above.FocusNeighborBottom = above.GetPathTo(increase);
+            var row = buttons[r];
+            Control? up = r > 0 ? buttons[r - 1][^1] : above;
+            Control? down = r < buttons.Length - 1 ? buttons[r + 1][^1] : below;
+
+            for (var b = 0; b < row.Length; b++)
+            {
+                if (b > 0)
+                    row[b].FocusNeighborLeft = row[b].GetPathTo(row[b - 1]);
+                if (b < row.Length - 1)
+                    row[b].FocusNeighborRight = row[b].GetPathTo(row[b + 1]);
+                if (up is not null)
+                    row[b].FocusNeighborTop = row[b].GetPathTo(up);
+                if (down is not null)
+                    row[b].FocusNeighborBottom = row[b].GetPathTo(down);
+            }
         }
 
+        if (above is not null)
+            above.FocusNeighborBottom = above.GetPathTo(buttons[0][^1]);
         if (below is not null)
-        {
-            decrease.FocusNeighborBottom = decrease.GetPathTo(below);
-            increase.FocusNeighborBottom = increase.GetPathTo(below);
-            below.FocusNeighborTop = below.GetPathTo(increase);
-        }
+            below.FocusNeighborTop = below.GetPathTo(buttons[^1][^1]);
     }
 
     private static Control? FirstFocusable(Node node)

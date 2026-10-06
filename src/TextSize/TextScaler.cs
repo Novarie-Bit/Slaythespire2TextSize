@@ -65,7 +65,7 @@ internal static class TextScaler
         if (node.HasMeta(FitKey))
             factor = Math.Min(factor, node.GetMeta(FitKey).AsSingle());
 
-        return Math.Max(factor, Math.Min(1f, TextSizeConfig.Scale));
+        return Math.Max(factor, FitGuard.Floor);
     }
 
     /// <summary>Caps the scale for one control and re-applies its sizes.</summary>
@@ -100,7 +100,7 @@ internal static class TextScaler
         FitGuard.Install(tree);
         Redraw.Install(tree);
 
-        if (!TextSizeConfig.IsDefault)
+        if (!TextSizeConfig.IsUntouched)
             RefreshAll();
     }
 
@@ -186,6 +186,10 @@ internal static class TextScaler
         if (reflow)
             Redraw.Request(control);
 
+        // Font first (it changes how much space text needs), then card contrast, then size.
+        ReadableFont.Apply(control);
+        CardContrast.Apply(control);
+
         if (MegaText.UsesAutoSize(control))
         {
             if (reflow)
@@ -197,7 +201,7 @@ internal static class TextScaler
                 // Entering the tree: raise the cap now, and auto-size again once the label is
                 // set up, in case it already sized itself before it was added.
                 MegaText.ApplyMaxFontSize(control, FactorFor(control), reflow: false);
-                if (!TextSizeConfig.IsDefault)
+                if (!TextSizeConfig.IsUntouched)
                 {
                     Callable.From(() =>
                     {
@@ -224,7 +228,7 @@ internal static class TextScaler
             }
             else
             {
-                if (TextSizeConfig.IsDefault)
+                if (TextSizeConfig.IsDefault && !control.HasMeta(FitKey))
                     continue;
 
                 baseSize = control.GetThemeFontSize(name);
@@ -245,7 +249,7 @@ internal static class TextScaler
         int baseSize;
         if (settings.HasMeta(LabelSettingsBaseKey))
             baseSize = settings.GetMeta(LabelSettingsBaseKey).AsInt32();
-        else if (TextSizeConfig.IsDefault)
+        else if (TextSizeConfig.IsDefault && !settings.HasMeta(FitKey))
             return;
         else
             baseSize = settings.FontSize;

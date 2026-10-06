@@ -27,6 +27,13 @@ namespace MegaCrit.Sts2.Core.Nodes.Screens.Settings
     }
 }
 
+namespace MegaCrit.Sts2.Core.Nodes.Cards
+{
+    public partial class NCard : Control
+    {
+    }
+}
+
 namespace MegaCrit.Sts2.addons.mega_text
 {
     // Mimic the game's auto-sizing: try sizes from MaxFontSize down and apply the first that
