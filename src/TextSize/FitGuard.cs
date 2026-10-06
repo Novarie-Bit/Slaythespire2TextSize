@@ -4,8 +4,13 @@ namespace TextSize;
 
 /// <summary>
 /// Safety net that keeps enlarged text readable. After layout, each enlarged text control is
-/// checked; if its text is cut off, or it now sticks out of the frame it sits in, its size is
-/// stepped back down (never below the game's normal size) until it fits.
+/// checked; if its text is cut off, or it now sticks out of the frame it sits in:
+///
+///  1. a one-line label sitting directly on a frame tall enough for another line is allowed
+///     to wrap onto more lines, so it can stay big;
+///  2. otherwise its size is stepped down (never below the game's normal size) until it fits.
+///     If wrapping didn't help even at normal size, the label goes back to one line and the
+///     search runs again, so it never ends up worse than a plain shrink.
 ///
 /// "The frame" is the nearest parent that isn't a layout container. Containers grow with
 /// their contents, but plain controls (buttons, panels, banners, card art...) don't, so text
@@ -15,7 +20,7 @@ namespace TextSize;
 internal static class FitGuard
 {
     /// <summary>How much the text size drops per step, as a fraction of normal size.</summary>
-    private const float Step = 0.1f;
+    private const float Step = 0.05f;
 
     /// <summary>Pixels of slack before counting something as sticking out.</summary>
     private const float Tolerance = 2f;
@@ -28,9 +33,16 @@ internal static class FitGuard
 
     private static readonly StringName WatchedKey = "textsize_mod_fit_watched";
 
+    /// <summary>Set while the mod has switched a label to wrapping.</summary>
+    private static readonly StringName WrappedKey = "textsize_mod_wrapped";
+
+    /// <summary>Set once wrapping was tried and given up on, so it isn't tried again.</summary>
+    private static readonly StringName WrapTriedKey = "textsize_mod_wrap_tried";
+
     private static readonly object Lock = new();
     private static readonly Dictionary<ulong, Control> Pending = new();
     private static readonly Dictionary<ulong, int> Suspect = new();
+    private static readonly HashSet<ulong> Confirmed = new();
 
     public static void Install(SceneTree tree) => tree.ProcessFrame += OnProcessFrame;
 
@@ -54,7 +66,21 @@ internal static class FitGuard
     public static void Reset()
     {
         lock (Lock)
+        {
             Suspect.Clear();
+            Confirmed.Clear();
+        }
+    }
+
+    /// <summary>Undoes any wrapping the mod switched on, giving the control a fresh start.</summary>
+    public static void Forget(Control control)
+    {
+        control.RemoveMeta(WrapTriedKey);
+        if (control is Label label && label.HasMeta(WrappedKey))
+        {
+            label.RemoveMeta(WrappedKey);
+            label.AutowrapMode = TextServer.AutowrapMode.Off;
+        }
     }
 
     private static void Queue(Control control)
@@ -87,30 +113,107 @@ internal static class FitGuard
             if (!Overflows(control))
             {
                 lock (Lock)
+                {
                     Suspect.Remove(id);
+                    Confirmed.Remove(id);
+                }
                 continue;
             }
 
-            var factor = TextScaler.FactorFor(control);
-            if (factor <= 1f)
-                continue;
-
-            int seen;
+            // The first time, wait for the overflow to persist before reacting; once confirmed,
+            // keep adjusting every frame until it fits.
+            bool act;
             lock (Lock)
             {
-                seen = Suspect.GetValueOrDefault(id) + 1;
-                Suspect[id] = seen;
+                if (Confirmed.Contains(id))
+                {
+                    act = true;
+                }
+                else
+                {
+                    var seen = Suspect.GetValueOrDefault(id) + 1;
+                    Suspect[id] = seen;
+                    act = seen >= ConfirmFrames;
+                    if (act)
+                    {
+                        Suspect.Remove(id);
+                        Confirmed.Add(id);
+                    }
+                }
             }
 
-            if (seen >= ConfirmFrames)
+            if (!act)
+            {
+                Queue(control);
+                continue;
+            }
+
+            if (Adjust(control))
+            {
+                Queue(control); // look again next frame
+            }
+            else
             {
                 lock (Lock)
-                    Suspect.Remove(id);
-                TextScaler.SetFitFactor(control, Math.Max(1f, factor - Step));
+                    Confirmed.Remove(id); // nothing left to try: it's at the game's normal size
             }
-
-            Queue(control); // look again next frame
         }
+    }
+
+    /// <summary>Makes one change towards fitting. Returns false when there's nothing left to try.</summary>
+    private static bool Adjust(Control control)
+    {
+        if (TryWrap(control))
+            return true;
+
+        var factor = TextScaler.FactorFor(control);
+        if (factor > 1f)
+        {
+            TextScaler.SetFitFactor(control, Math.Max(1f, factor - Step));
+            return true;
+        }
+
+        // Even at normal size the wrapped text doesn't fit: back to one line and search again.
+        if (control is Label label && label.HasMeta(WrappedKey))
+        {
+            label.RemoveMeta(WrappedKey);
+            label.AutowrapMode = TextServer.AutowrapMode.Off;
+            TextScaler.SetFitFactor(control, TextSizeConfig.Scale);
+            return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Lets a one-line label wrap when it sits directly on a frame (not in a layout container,
+    /// where wrapping could squash it to one word per line) and the frame has room for at least
+    /// two lines.
+    /// </summary>
+    private static bool TryWrap(Control control)
+    {
+        if (control is not Label label
+            || label.AutowrapMode != TextServer.AutowrapMode.Off
+            || label.HasMeta(WrapTriedKey)
+            || label.GetParent() is Container
+            || !label.Text.Contains(' ')
+            || MegaText.UsesAutoSize(label))
+            return false;
+
+        label.SetMeta(WrapTriedKey, true);
+
+        var frame = FindFrame(label);
+        if (frame is null)
+            return false;
+
+        var font = label.LabelSettings?.Font ?? label.GetThemeFont("font");
+        var size = label.LabelSettings?.FontSize ?? label.GetThemeFontSize("font_size");
+        if (frame.Size.Y < font.GetHeight(size) * 2f)
+            return false;
+
+        label.SetMeta(WrappedKey, true);
+        label.AutowrapMode = TextServer.AutowrapMode.WordSmart;
+        return true;
     }
 
     internal static bool Overflows(Control control) => IsCutOff(control) || SticksOutOfFrame(control);

@@ -21,6 +21,7 @@ public partial class TestRunner : Node
     async void Run()
     {
         DirAccess.RemoveAbsolute("user://TextSizeMod/settings.cfg");
+        GetTree().Root.Size = new Vector2I(1920, 1080); // headless defaults to a 64x64 window
         ModEntry.Initialize();
         var root = GetTree().Root;
         Check("default percent", TextSizeConfig.Percent, 100);
@@ -156,8 +157,20 @@ public partial class TestRunner : Node
         var lsFree = new Label { Text = "x", LabelSettings = shared };
         root.AddChild(lsFree);
 
-        for (var i = 0; i < 60; i++) await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+        // Tall enough for two lines: wraps instead of shrinking.
+        var tallFrame = MakeFrame(500, 300, 220, 170);
+        var wrapper = MakeLabel("Proceed to the Map Screen", 20);
+        wrapper.HorizontalAlignment = HorizontalAlignment.Center;
+        wrapper.VerticalAlignment = VerticalAlignment.Center;
+        tallFrame.AddChild(wrapper);
+        wrapper.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
 
+        for (var i = 0; i < 150; i++) await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+
+        Check("label in a tall frame wrapped instead of shrinking", wrapper.AutowrapMode != TextServer.AutowrapMode.Off, true);
+        Check("wrapped label keeps full 200%", wrapper.GetThemeFontSize("font_size"), 40);
+        Check("wrapped label fits its frame", FitGuard.Overflows(wrapper), false);
+        Check("short frame label stayed on one line", framed.AutowrapMode, TextServer.AutowrapMode.Off);
         var framedSize = framed.GetThemeFontSize("font_size");
         Check("framed label no longer spills out", FitGuard.Overflows(framed), false);
         Check("framed label shrank below 200%", framedSize < 40, true);
@@ -175,14 +188,15 @@ public partial class TestRunner : Node
 
         TextSizeConfig.SetPercent(100);
         Check("framed label back to normal", framed.GetThemeFontSize("font_size"), 20);
+        Check("wrapping undone at 100%", wrapper.AutowrapMode, TextServer.AutowrapMode.Off);
         Check("rich text back to normal", boxed.GetThemeFontSize("normal_font_size"), 12);
         Check("copied LabelSettings back to normal", lsFramed.LabelSettings.FontSize, 20);
 
         TextSizeConfig.SetPercent(200);
         Check("framed label gets full size again right after the change", framed.GetThemeFontSize("font_size"), 40);
-        for (var i = 0; i < 60; i++) await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+        for (var i = 0; i < 150; i++) await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
         Check("framed label re-fitted after the change", framed.GetThemeFontSize("font_size"), framedSize);
-        foreach (var node in new Node[] { frame, free, scrollArea, clipFrame, richFrame, lsFrame, lsFree }) node.QueueFree();
+        foreach (var node in new Node[] { frame, free, scrollArea, clipFrame, richFrame, lsFrame, lsFree, tallFrame }) node.QueueFree();
         TextSizeConfig.SetPercent(100);
 
         // Settings screen injection.

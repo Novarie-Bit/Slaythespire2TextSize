@@ -82,7 +82,7 @@ To build against a real install instead, use `scripts/package.ps1 -GameDir "...\
 | `ModEntry.cs` | `[ModInitializer]` entry point. Loads the setting and applies each Harmony patch independently |
 | `TextScaler.cs` | Scales font sizes across the UI and re-applies them when the setting changes |
 | `MegaText.cs` | Raises the maximum size of the game's self-fitting labels instead of enlarging them past their box |
-| `FitGuard.cs` | Shrinks any enlarged text that gets cut off or spills out of its frame until it fits |
+| `FitGuard.cs` | Wraps or shrinks any enlarged text that gets cut off or spills out of its frame, until it fits |
 | `Patches/FontSizePatches.cs` | Intercepts font sizes set from code: `AddThemeFontSizeOverride` and `LabelSettings.FontSize` |
 | `Patches/SettingsScreenPatch.cs` | Hooks `NSettingsScreen._Ready` to add the row |
 | `UI/TextSizeSettingRow.cs` | The row itself, styled after the native rows, with controller and keyboard focus |
@@ -90,7 +90,7 @@ To build against a real install instead, use `scripts/package.ps1 -GameDir "...\
 
 Every font size the game sets is stored on its node as the base size and replaced with the scaled size. Sizes baked into scenes and themes are picked up when a node enters the scene tree. Changing the setting re-applies everything from the stored base sizes, so changes never compound.
 
-**Keeping text inside its frame:** the game's self-fitting labels get a higher maximum size, and the game keeps them inside their box. Any other text that gets cut off or sticks out of its frame (the nearest parent that isn't a layout container) is stepped back down by `FitGuard.cs`, never below normal size, until it fits. Where space is tight, text grows only as much as fits.
+**Keeping text inside its frame:** the game's self-fitting labels get a higher maximum size, and the game keeps them inside their box. Any other text that gets cut off or sticks out of its frame (the nearest parent that isn't a layout container) is handled by `FitGuard.cs`. A one-line label sitting directly on a frame with room for another line wraps instead of shrinking. Otherwise the text steps down 5% at a time, never below normal size, until it fits.
 
 ### Testing
 
