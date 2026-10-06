@@ -13,24 +13,48 @@ namespace TextSize;
 ///     If wrapping didn't help even at normal size, the label goes back to one line and the
 ///     search runs again, so it never ends up worse than a plain shrink.
 ///
-/// "The frame" is the nearest parent that isn't a layout container. Containers grow with
-/// their contents, but plain controls (buttons, panels, banners, card art...) don't, so text
-/// sticking out of one is text spilling off the art. Scrollable areas and full-screen
-/// parents don't count as frames.
+/// "The frame" is the nearest parent that isn't a layout container and that you can actually
+/// see: one that draws a picture, panel, colour or button behind the text, or has a background
+/// child covering it. Containers grow with their contents, and invisible holders (like the one
+/// the game puts hover tooltips in) don't bound anything visually, so neither counts.
+/// Scrollable areas and full-screen parents don't count either.
+///
+/// Text also mustn't push its layout off the screen: if text inside a stack of containers
+/// (like an event's story text above its option buttons) makes that stack run past the bottom
+/// or right edge of the screen, the text in it shrinks until the whole stack fits. This only
+/// happens once the layout has stopped moving, so panels sliding in from off-screen aren't
+/// affected.
+///
+/// While a size is being searched for, the text is hidden (its own SelfModulate is made
+/// transparent), so you never see it appear big and then shrink. The search halves the gap
+/// each frame, so it takes only a handful of frames.
 /// </summary>
 internal static class FitGuard
 {
-    /// <summary>How much the text size drops per step, as a fraction of normal size.</summary>
-    private const float Step = 0.05f;
+    /// <summary>The search stops once the fitting size is known to within this fraction.</summary>
+    private const float Precision = 0.03f;
+
+    /// <summary>A background child must cover this much of a parent for it to count as a frame.</summary>
+    private const float BackgroundCoverage = 0.7f;
 
     /// <summary>Pixels of slack before counting something as sticking out.</summary>
     private const float Tolerance = 2f;
 
     /// <summary>
     /// Overflow must be seen this many frames in a row before shrinking, so frames that the
-    /// game resizes to fit their text a moment later aren't mistaken for overflow.
+    /// game resizes to fit their text a moment later aren't mistaken for overflow. The text is
+    /// hidden while waiting, so the wait isn't visible.
     /// </summary>
     private const int ConfirmFrames = 2;
+
+    /// <summary>The text's own SelfModulate, saved while the mod hides it.</summary>
+    private static readonly StringName HiddenKey = "textsize_mod_fit_hidden";
+
+    /// <summary>
+    /// Set on text whose layout runs off the screen even at normal size: that layout is meant to
+    /// scroll or extend, so the screen edge isn't checked for it again.
+    /// </summary>
+    private static readonly StringName ScreenExemptKey = "textsize_mod_screen_exempt";
 
     private static readonly StringName WatchedKey = "textsize_mod_fit_watched";
 
@@ -43,19 +67,42 @@ internal static class FitGuard
     private static readonly object Lock = new();
     private static readonly Dictionary<ulong, Control> Pending = new();
     private static readonly Dictionary<ulong, int> Suspect = new();
-    private static readonly HashSet<ulong> Confirmed = new();
+    private static readonly Dictionary<ulong, Search> Searches = new();
+    private static readonly Dictionary<ulong, Vector2> SuspectPositions = new();
+
+    private enum Overflow
+    {
+        None,
+
+        /// <summary>Cut off, or sticking out of its frame.</summary>
+        Frame,
+
+        /// <summary>Pushing its layout off the screen.</summary>
+        Screen,
+    }
+
+    /// <summary>A size search in progress: the text fits at Lo and doesn't at Hi.</summary>
+    private sealed class Search
+    {
+        public float Lo;
+        public float Hi;
+        public Overflow Kind;
+    }
 
     /// <summary>
     /// Text can only need help fitting when it's bigger than normal, or when the readable font
     /// (which can run a little wider than the game's) is on.
     /// </summary>
-    public static bool Active => TextSizeConfig.Scale > 1f || TextSizeConfig.ReadableFont;
+    public static bool Active => TextSizeConfig.Scale > 1f || TextSizeConfig.CardScale > 1f || TextSizeConfig.ChangesFont;
 
     /// <summary>
-    /// The smallest scale the guard may step down to: normal size, or slightly under it with the
-    /// readable font so a wider font can still fit where the game's font just fit.
+    /// The smallest scale the guard may step down to: normal size, or slightly under it when a
+    /// font option is on (the readable font, bold text and wider spacing can all take more room
+    /// than the game's font, so text that just fit before may need to go a bit smaller).
     /// </summary>
-    public static float Floor => Math.Min(1f, TextSizeConfig.Scale) * (TextSizeConfig.ReadableFont ? 0.85f : 1f);
+    public static float FloorFor(float baseScale) => Math.Min(1f, baseScale) * (TextSizeConfig.ChangesFont ? 0.85f : 1f);
+
+    private static float FloorFor(Control control) => FloorFor(TextScaler.BaseScaleFor(control));
 
     public static void Install(SceneTree tree) => tree.ProcessFrame += OnProcessFrame;
 
@@ -81,14 +128,17 @@ internal static class FitGuard
         lock (Lock)
         {
             Suspect.Clear();
-            Confirmed.Clear();
+            Searches.Clear();
+            SuspectPositions.Clear();
         }
     }
 
     /// <summary>Undoes any wrapping the mod switched on, giving the control a fresh start.</summary>
     public static void Forget(Control control)
     {
+        Show(control);
         control.RemoveMeta(WrapTriedKey);
+        control.RemoveMeta(ScreenExemptKey);
         if (control is Label label && label.HasMeta(WrappedKey))
         {
             label.RemoveMeta(WrappedKey);
@@ -119,86 +169,211 @@ internal static class FitGuard
 
         foreach (var control in batch)
         {
-            if (!GodotObject.IsInstanceValid(control) || !control.IsInsideTree() || !control.IsVisibleInTree())
+            if (!GodotObject.IsInstanceValid(control))
                 continue;
 
-            var id = control.GetInstanceId();
-            if (!Overflows(control))
+            if (!control.IsInsideTree() || !control.IsVisibleInTree())
             {
-                lock (Lock)
-                {
-                    Suspect.Remove(id);
-                    Confirmed.Remove(id);
-                }
+                Abandon(control);
                 continue;
             }
 
-            // The first time, wait for the overflow to persist before reacting; once confirmed,
-            // keep adjusting every frame until it fits.
-            bool act;
-            lock (Lock)
-            {
-                if (Confirmed.Contains(id))
-                {
-                    act = true;
-                }
-                else
-                {
-                    var seen = Suspect.GetValueOrDefault(id) + 1;
-                    Suspect[id] = seen;
-                    act = seen >= ConfirmFrames;
-                    if (act)
-                    {
-                        Suspect.Remove(id);
-                        Confirmed.Add(id);
-                    }
-                }
-            }
-
-            if (!act)
-            {
-                Queue(control);
-                continue;
-            }
-
-            if (Adjust(control))
-            {
-                Queue(control); // look again next frame
-            }
-            else
-            {
-                lock (Lock)
-                    Confirmed.Remove(id); // nothing left to try: it's at the game's normal size
-            }
+            Step(control);
         }
     }
 
-    /// <summary>Makes one change towards fitting. Returns false when there's nothing left to try.</summary>
-    private static bool Adjust(Control control)
+    private static void Step(Control control)
     {
-        if (TryWrap(control))
+        var id = control.GetInstanceId();
+        var kind = Classify(control);
+        var over = kind != Overflow.None;
+
+        Search? search;
+        lock (Lock)
+            Searches.TryGetValue(id, out search);
+
+        if (search is not null)
+        {
+            Continue(control, id, search, over);
+            return;
+        }
+
+        if (!over)
+        {
+            lock (Lock)
+            {
+                Suspect.Remove(id);
+                SuspectPositions.Remove(id);
+            }
+            Show(control);
+            return;
+        }
+
+        int seen;
+        if (kind == Overflow.Screen)
+        {
+            // Only judge a layout that has stopped moving (panels slide in from off-screen),
+            // and keep the text visible until then.
+            var position = control.GetGlobalTransformWithCanvas().Origin;
+            lock (Lock)
+            {
+                var still = SuspectPositions.TryGetValue(id, out var last) && last.DistanceTo(position) < 1f;
+                seen = still ? Suspect.GetValueOrDefault(id) + 1 : 1;
+                Suspect[id] = seen;
+                SuspectPositions[id] = position;
+            }
+
+            if (seen >= ConfirmFrames)
+                Hide(control);
+        }
+        else
+        {
+            // Hide straight away; wait a frame or two in case the game resizes the frame itself.
+            Hide(control);
+            lock (Lock)
+            {
+                seen = Suspect.GetValueOrDefault(id) + 1;
+                Suspect[id] = seen;
+            }
+        }
+
+        if (seen < ConfirmFrames)
+        {
+            Queue(control);
+            return;
+        }
+
+        lock (Lock)
+        {
+            Suspect.Remove(id);
+            SuspectPositions.Remove(id);
+        }
+
+        if (kind == Overflow.Frame && TryWrap(control))
         {
             Redraw.Request(control);
-            return true;
+            Queue(control);
+            return;
         }
 
+        StartSearch(control, id, kind);
+    }
+
+    /// <summary>Begins a search between the lowest allowed size and the current (too big) one.</summary>
+    private static void StartSearch(Control control, ulong id, Overflow kind)
+    {
         var factor = TextScaler.FactorFor(control);
-        if (factor > Floor + 0.001f)
+        if (factor <= FloorFor(control) + 0.001f)
         {
-            TextScaler.SetFitFactor(control, Math.Max(Floor, factor - Step));
-            return true;
+            GiveUp(control, kind);
+            return;
         }
 
-        // Even at normal size the wrapped text doesn't fit: back to one line and search again.
+        var search = new Search { Lo = FloorFor(control), Hi = factor, Kind = kind };
+        lock (Lock)
+            Searches[id] = search;
+
+        Try(control, (search.Lo + search.Hi) / 2f);
+    }
+
+    private static void Continue(Control control, ulong id, Search search, bool over)
+    {
+        var current = TextScaler.FactorFor(control);
+        if (over)
+            search.Hi = current;
+        else
+            search.Lo = current;
+
+        if (search.Hi - search.Lo > Precision)
+        {
+            Try(control, (search.Lo + search.Hi) / 2f);
+            return;
+        }
+
+        // Close enough: settle on the largest size known to fit.
+        if (!over && Mathf.IsEqualApprox(current, search.Lo))
+        {
+            lock (Lock)
+                Searches.Remove(id);
+            Show(control);
+            return;
+        }
+
+        if (over && current <= FloorFor(control) + 0.001f)
+        {
+            lock (Lock)
+                Searches.Remove(id);
+            GiveUp(control, search.Kind);
+            return;
+        }
+
+        Try(control, search.Lo);
+    }
+
+    private static void Try(Control control, float factor)
+    {
+        TextScaler.SetFitFactor(control, factor);
+        Queue(control);
+    }
+
+    /// <summary>
+    /// Nothing smaller is allowed. If wrapping was on, go back to one line and search again
+    /// (never worse than a plain shrink). If the layout runs off the screen even at normal
+    /// size, it's meant to scroll: restore full size and stop checking the screen edge for it.
+    /// Otherwise show the text as it is.
+    /// </summary>
+    private static void GiveUp(Control control, Overflow kind)
+    {
+        if (kind == Overflow.Screen)
+        {
+            control.SetMeta(ScreenExemptKey, true);
+            TextScaler.SetFitFactor(control, TextScaler.BaseScaleFor(control));
+            Show(control);
+            return;
+        }
+
         if (control is Label label && label.HasMeta(WrappedKey))
         {
             label.RemoveMeta(WrappedKey);
             label.AutowrapMode = TextServer.AutowrapMode.Off;
-            TextScaler.SetFitFactor(control, TextSizeConfig.Scale);
-            return true;
+            TextScaler.SetFitFactor(control, TextScaler.BaseScaleFor(control));
+            Queue(control);
+            return;
         }
 
-        return false;
+        Show(control);
+    }
+
+    private static void Hide(Control control)
+    {
+        if (control.HasMeta(HiddenKey))
+            return;
+
+        control.SetMeta(HiddenKey, control.SelfModulate);
+        control.SelfModulate = control.SelfModulate with { A = 0f };
+    }
+
+    private static void Show(Control control)
+    {
+        if (!control.HasMeta(HiddenKey))
+            return;
+
+        control.SelfModulate = control.GetMeta(HiddenKey).AsColor();
+        control.RemoveMeta(HiddenKey);
+    }
+
+    /// <summary>Drops any in-progress check for a control that left the screen.</summary>
+    private static void Abandon(Control control)
+    {
+        var id = control.GetInstanceId();
+        lock (Lock)
+        {
+            Suspect.Remove(id);
+            Searches.Remove(id);
+            SuspectPositions.Remove(id);
+        }
+
+        Show(control);
     }
 
     /// <summary>
@@ -218,7 +393,7 @@ internal static class FitGuard
 
         label.SetMeta(WrapTriedKey, true);
 
-        var frame = FindFrame(label);
+        var (frame, _) = FindFrame(label);
         if (frame is null)
             return false;
 
@@ -232,7 +407,21 @@ internal static class FitGuard
         return true;
     }
 
-    internal static bool Overflows(Control control) => IsCutOff(control) || SticksOutOfFrame(control);
+    internal static bool Overflows(Control control) => Classify(control) != Overflow.None;
+
+    private static Overflow Classify(Control control)
+    {
+        if (IsCutOff(control))
+            return Overflow.Frame;
+
+        var (frame, scrollable) = FindFrame(control);
+        if (frame is not null)
+            return SticksOutOfFrame(control, frame) ? Overflow.Frame : Overflow.None;
+
+        return !scrollable && !control.HasMeta(ScreenExemptKey) && PushesOffScreen(control)
+            ? Overflow.Screen
+            : Overflow.None;
+    }
 
     /// <summary>Text that no longer fits inside its own box and gets clipped or trimmed.</summary>
     private static bool IsCutOff(Control control)
@@ -269,12 +458,8 @@ internal static class FitGuard
     }
 
     /// <summary>Text (or the containers it pushed bigger) poking outside its frame.</summary>
-    private static bool SticksOutOfFrame(Control control)
+    private static bool SticksOutOfFrame(Control control, Control frame)
     {
-        var frame = FindFrame(control);
-        if (frame is null)
-            return false;
-
         // Compare in the frame's own coordinates, so tilted or scaled things (like the fanned-out
         // cards in your hand) are measured correctly.
         var bounds = new Rect2(Vector2.Zero, frame.Size).Grow(Tolerance);
@@ -303,27 +488,106 @@ internal static class FitGuard
         return rect;
     }
 
-    private static Control? FindFrame(Control control)
+    /// <summary>
+    /// Text in a stack of layout containers that runs past the bottom or right edge of the
+    /// screen while its top-left corner is on screen: the stack grew off the screen, for
+    /// example story text pushing an event's options down out of view.
+    /// </summary>
+    private static bool PushesOffScreen(Control control)
+    {
+        if (control.GetParent() is not Container)
+            return false; // only stacks of containers grow into each other
+
+        var screen = control.GetViewportRect().Grow(Tolerance);
+        for (Node? node = control; node is Control current; node = current.GetParent())
+        {
+            var rect = RectOnScreen(current);
+            var topLeftOnScreen = screen.HasPoint(rect.Position);
+            if (topLeftOnScreen && (rect.End.X > screen.End.X || rect.End.Y > screen.End.Y))
+                return true;
+
+            if (current.GetParent() is not Container || current.GetParent() is ScrollContainer)
+                break; // reached the top of the stack
+        }
+
+        return false;
+    }
+
+    private static Rect2 RectOnScreen(Control control)
+    {
+        var transform = control.GetGlobalTransformWithCanvas();
+        var size = control.Size;
+        Vector2[] corners = [Vector2.Zero, new(size.X, 0f), new(0f, size.Y), size];
+
+        var rect = new Rect2(transform * corners[0], Vector2.Zero);
+        foreach (var corner in corners)
+            rect = rect.Expand(transform * corner);
+
+        return rect;
+    }
+
+    /// <summary>
+    /// Finds the visible frame bounding the text, if any. Scrollable is true when the text is in a
+    /// scroll area, where neither frames nor the screen edge constrain it.
+    /// </summary>
+    private static (Control? Frame, bool Scrollable) FindFrame(Control control)
     {
         var viewport = control.GetViewportRect().Size;
-        for (var node = control.GetParent(); node is Control parent; node = parent.GetParent())
+        Node branch = control;
+        for (var node = control.GetParent(); node is Control parent; branch = parent, node = parent.GetParent())
         {
             if (parent is ScrollContainer)
-                return null; // scrollable content isn't constrained
+                return (null, true); // scrollable content isn't constrained
 
             if (parent is Container)
                 continue; // containers grow with their contents
 
             var rect = parent.GetGlobalRect();
             if (rect.Size.X >= viewport.X * 0.9f && rect.Size.Y >= viewport.Y * 0.9f)
-                return null; // full-screen: nothing to spill off
+                return (null, false); // full-screen: only the screen edge bounds it
 
-            if (rect.Size.X >= 8f && rect.Size.Y >= 8f)
-                return parent;
+            if (rect.Size.X >= 8f && rect.Size.Y >= 8f && IsVisibleFrame(parent, branch))
+                return (parent, false);
 
-            // Tiny controls are usually just positioning anchors; keep looking.
+            // Invisible holders and tiny positioning anchors don't bound anything; keep looking.
         }
 
-        return null;
+        return (null, false);
     }
+
+    /// <summary>
+    /// True when the parent visibly bounds the text: it draws something itself, or it has a
+    /// background child (outside the text's own branch) covering most of it.
+    /// </summary>
+    private static bool IsVisibleFrame(Control parent, Node textBranch)
+    {
+        if (DrawsBackground(parent))
+            return true;
+
+        var area = parent.Size.X * parent.Size.Y;
+        if (area <= 0f)
+            return false;
+
+        foreach (var child in parent.GetChildren())
+        {
+            if (child == textBranch || child is not Control { Visible: true } background || !DrawsBackground(background))
+                continue;
+
+            var covered = new Rect2(background.Position, background.Size * background.Scale)
+                .Intersection(new Rect2(Vector2.Zero, parent.Size));
+            if (covered.Size.X * covered.Size.Y >= area * BackgroundCoverage)
+                return true;
+        }
+
+        return false;
+    }
+
+    private static bool DrawsBackground(Control control) => control switch
+    {
+        TextureRect texture => texture.Texture is not null,
+        NinePatchRect patch => patch.Texture is not null,
+        ColorRect color => color.Color.A > 0.05f,
+        Panel or PanelContainer or BaseButton => true,
+        _ => false,
+    };
 }

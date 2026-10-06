@@ -1,13 +1,13 @@
 using Godot;
-using HarmonyLib;
 
 namespace TextSize;
 
 /// <summary>
-/// The "High-Contrast Card Text" option. Only text inside a card (a descendant of the game's
-/// NCard node) is touched; the rest of the game keeps its normal look.
+/// The "High-Contrast Card Text" and "High-Contrast Tooltips" options. Only text inside a card
+/// (the game's NCard) or a hover tooltip (NHoverTipSet), as switched on, is touched; the rest of
+/// the game keeps its normal look.
 ///
-/// Card text gets a thick black outline, and its colour is pushed to full brightness: plain
+/// That text gets a thick black outline, and its colour is pushed to full brightness: plain
 /// white/cream text becomes pure white, while coloured text (a red unaffordable cost, a green
 /// upgraded number...) keeps its colour so it still means the same thing, just brighter.
 ///
@@ -15,12 +15,10 @@ namespace TextSize;
 /// option off restores them exactly. Colours the game sets while the option is on are
 /// intercepted, remembered as the new originals, and made high-contrast too.
 /// </summary>
-internal static class CardContrast
+internal static class HighContrast
 {
     /// <summary>Minimum outline thickness in pixels.</summary>
     private const int OutlineSize = 8;
-
-    private static readonly Type? CardType = AccessTools.TypeByName("MegaCrit.Sts2.Core.Nodes.Cards.NCard");
 
     private static readonly StringName SnapshotKey = "textsize_mod_contrast_base";
     private static readonly StringName OriginalSettingsKey = "textsize_mod_contrast_label_settings";
@@ -33,21 +31,13 @@ internal static class CardContrast
     [ThreadStatic]
     private static bool _writing;
 
-    public static bool Enabled => TextSizeConfig.HighContrastCards && CardType is not null;
+    /// <summary>Quick check before the per-node work: is either option on?</summary>
+    public static bool Enabled => TextSizeConfig.HighContrastCards || TextSizeConfig.HighContrastTooltips;
 
-    public static bool IsInCard(Node node)
-    {
-        if (CardType is null)
-            return false;
-
-        for (var parent = node.GetParent(); parent is not null; parent = parent.GetParent())
-        {
-            if (CardType.IsInstanceOfType(parent))
-                return true;
-        }
-
-        return false;
-    }
+    /// <summary>Whether this text should be high-contrast with the current settings.</summary>
+    public static bool IsTarget(Node node) =>
+        (TextSizeConfig.HighContrastCards && GameNodes.IsInCard(node))
+        || (TextSizeConfig.HighContrastTooltips && GameNodes.IsInTooltip(node));
 
     /// <summary>Applies or removes high contrast on one control, as the setting requires.</summary>
     public static void Apply(Control control)
@@ -55,7 +45,7 @@ internal static class CardContrast
         if (control is not (Label or RichTextLabel))
             return;
 
-        var want = Enabled && IsInCard(control);
+        var want = Enabled && IsTarget(control);
         if (want)
         {
             if (!control.HasMeta(SnapshotKey))
@@ -80,7 +70,7 @@ internal static class CardContrast
 
         if (!control.HasMeta(SnapshotKey))
         {
-            if (!IsInCard(control))
+            if (!IsTarget(control))
                 return;
             TakeSnapshot(control);
         }
@@ -100,7 +90,7 @@ internal static class CardContrast
 
         if (!control.HasMeta(SnapshotKey))
         {
-            if (!IsInCard(control))
+            if (!IsTarget(control))
                 return;
             TakeSnapshot(control);
         }

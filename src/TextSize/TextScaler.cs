@@ -43,6 +43,9 @@ internal static class TextScaler
     /// <summary>Per-node cap on the scale, set by <see cref="FitGuard"/> when text doesn't fit.</summary>
     private static readonly StringName FitKey = "textsize_mod_fit";
 
+    /// <summary>Marks a label's own copy of its LabelSettings as card text (uses Card Text Size).</summary>
+    private static readonly StringName CardSettingsKey = "textsize_mod_card_settings";
+
     // Font sizes can be set while scenes are built on loader threads.
     private static readonly ConcurrentDictionary<string, StringName> MetaKeys = new();
 
@@ -58,14 +61,23 @@ internal static class TextScaler
         return Math.Max(1, (int)MathF.Round(baseSize * factor));
     }
 
-    /// <summary>The scale to use for this node: the setting, unless the fit guard capped it.</summary>
+    /// <summary>The size setting that applies to this node: Card Text Size on cards, Text Size elsewhere.</summary>
+    public static float BaseScaleFor(GodotObject node) => node switch
+    {
+        Control control when GameNodes.IsInCard(control) => TextSizeConfig.CardScale,
+        LabelSettings settings when settings.HasMeta(CardSettingsKey) => TextSizeConfig.CardScale,
+        _ => TextSizeConfig.Scale,
+    };
+
+    /// <summary>The scale to use for this node: its size setting, unless the fit guard capped it.</summary>
     public static float FactorFor(GodotObject node)
     {
-        var factor = TextSizeConfig.Scale;
+        var baseScale = BaseScaleFor(node);
+        var factor = baseScale;
         if (node.HasMeta(FitKey))
             factor = Math.Min(factor, node.GetMeta(FitKey).AsSingle());
 
-        return Math.Max(factor, FitGuard.Floor);
+        return Math.Max(factor, FitGuard.FloorFor(baseScale));
     }
 
     /// <summary>Caps the scale for one control and re-applies its sizes.</summary>
@@ -187,8 +199,8 @@ internal static class TextScaler
             Redraw.Request(control);
 
         // Font first (it changes how much space text needs), then card contrast, then size.
-        ReadableFont.Apply(control);
-        CardContrast.Apply(control);
+        FontTweaks.Apply(control);
+        HighContrast.Apply(control);
 
         if (MegaText.UsesAutoSize(control))
         {
@@ -228,7 +240,7 @@ internal static class TextScaler
             }
             else
             {
-                if (TextSizeConfig.IsDefault && !control.HasMeta(FitKey))
+                if (Mathf.IsEqualApprox(BaseScaleFor(control), 1f) && !control.HasMeta(FitKey))
                     continue;
 
                 baseSize = control.GetThemeFontSize(name);
@@ -238,8 +250,21 @@ internal static class TextScaler
                 control.AddThemeFontSizeOverride(name, baseSize); // the prefix scales it
         }
 
-        if (control is Label { LabelSettings: { } settings })
+        if (control is Label { LabelSettings: { } settings } label)
+        {
+            // Shared LabelSettings can't follow Card Text Size for some labels and Text Size for
+            // others, so a card label gets its own copy.
+            if (!settings.HasMeta(CardSettingsKey)
+                && !Mathf.IsEqualApprox(TextSizeConfig.CardScale, TextSizeConfig.Scale)
+                && GameNodes.IsInCard(label))
+            {
+                settings = (LabelSettings)settings.Duplicate();
+                settings.SetMeta(CardSettingsKey, true);
+                label.LabelSettings = settings;
+            }
+
             Apply(settings);
+        }
 
         FitGuard.Watch(control);
     }
@@ -249,7 +274,7 @@ internal static class TextScaler
         int baseSize;
         if (settings.HasMeta(LabelSettingsBaseKey))
             baseSize = settings.GetMeta(LabelSettingsBaseKey).AsInt32();
-        else if (TextSizeConfig.IsDefault && !settings.HasMeta(FitKey))
+        else if (Mathf.IsEqualApprox(BaseScaleFor(settings), 1f) && !settings.HasMeta(FitKey))
             return;
         else
             baseSize = settings.FontSize;

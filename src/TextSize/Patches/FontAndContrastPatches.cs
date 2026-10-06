@@ -6,7 +6,7 @@ namespace TextSize.Patches;
 
 // Same approach as FontSizePatches.cs: targets are resolved in code, not typeof() in attributes.
 
-/// <summary>Swaps fonts set from code for the readable font when that option is on.</summary>
+/// <summary>Swaps fonts set from code for the tweaked font when a font option is on.</summary>
 [HarmonyPatch]
 internal static class AddThemeFontOverridePatch
 {
@@ -15,7 +15,7 @@ internal static class AddThemeFontOverridePatch
 
     private static void Prefix(Control __instance, StringName name, ref Font font)
     {
-        ReadableFont.OnFontOverride(__instance, name, ref font);
+        FontTweaks.OnFontOverride(__instance, name, ref font);
     }
 }
 
@@ -28,11 +28,11 @@ internal static class LabelSettingsFontPatch
 
     private static void Prefix(LabelSettings __instance, ref Font value)
     {
-        ReadableFont.OnLabelSettingsFont(__instance, ref value);
+        FontTweaks.OnLabelSettingsFont(__instance, ref value);
     }
 }
 
-/// <summary>Keeps card text high-contrast when the game recolours it.</summary>
+/// <summary>Keeps card/tooltip text high-contrast when the game recolours it.</summary>
 [HarmonyPatch]
 internal static class AddThemeColorOverridePatch
 {
@@ -41,11 +41,11 @@ internal static class AddThemeColorOverridePatch
 
     private static void Prefix(Control __instance, StringName name, ref Color color)
     {
-        CardContrast.OnColorOverride(__instance, name, ref color);
+        HighContrast.OnColorOverride(__instance, name, ref color);
     }
 }
 
-/// <summary>Keeps card text outlines thick when the game changes them.</summary>
+/// <summary>Keeps outlines thick and wider line spacing when the game changes them.</summary>
 [HarmonyPatch]
 internal static class AddThemeConstantOverridePatch
 {
@@ -54,6 +54,7 @@ internal static class AddThemeConstantOverridePatch
 
     private static void Prefix(Control __instance, StringName name, ref int constant)
     {
-        CardContrast.OnConstantOverride(__instance, name, ref constant);
+        FontTweaks.OnConstantOverride(__instance, name, ref constant);
+        HighContrast.OnConstantOverride(__instance, name, ref constant);
     }
 }
