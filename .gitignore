@@ -1,0 +1,16 @@
+# Build output
+bin/
+obj/
+dist/
+*.user
+.vs/
+.idea/
+
+# Downloaded by "Upload to Steam Workshop.bat"
+tools/
+mod-uploader.log
+
+# CI / test artifacts
+ci/fake-game-data/
+tests/GodotHeadless/.godot/
+tests/GodotHeadless/test-output.log

@@ -1,0 +1,64 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Builds TextSizeSetting.dll against the assemblies shipped with your Slay the Spire 2 install.
+    The game folder is auto-detected for the default Steam locations; otherwise pass it in:
+
+      dotnet build -c Release -p:GameDir="D:\SteamLibrary\steamapps\common\Slay the Spire 2"
+
+    or point straight at the managed data folder with -p:Sts2DataDir=...
+  -->
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>TextSizeSetting</AssemblyName>
+    <RootNamespace>TextSize</RootNamespace>
+    <Version>1.0.0</Version>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <CopyLocalLockFileAssemblies>false</CopyLocalLockFileAssemblies>
+    <!-- The game is built for a specific platform; the mod is MSIL. -->
+    <NoWarn>$(NoWarn);MSB3270</NoWarn>
+  </PropertyGroup>
+
+  <!-- Default Steam install locations (Windows, Linux). -->
+  <PropertyGroup Condition="'$(GameDir)' == '' and '$(Sts2DataDir)' == ''">
+    <GameDir Condition="Exists('C:\Program Files (x86)\Steam\steamapps\common\Slay the Spire 2')">C:\Program Files (x86)\Steam\steamapps\common\Slay the Spire 2</GameDir>
+    <GameDir Condition="'$(GameDir)' == '' and Exists('$(HOME)/.local/share/Steam/steamapps/common/Slay the Spire 2')">$(HOME)/.local/share/Steam/steamapps/common/Slay the Spire 2</GameDir>
+    <GameDir Condition="'$(GameDir)' == '' and Exists('$(HOME)/.steam/steam/steamapps/common/Slay the Spire 2')">$(HOME)/.steam/steam/steamapps/common/Slay the Spire 2</GameDir>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(Sts2DataDir)' == '' and '$(GameDir)' != ''">
+    <Sts2DataDir Condition="Exists('$(GameDir)/data_sts2_windows_x86_64/sts2.dll')">$(GameDir)/data_sts2_windows_x86_64</Sts2DataDir>
+    <Sts2DataDir Condition="'$(Sts2DataDir)' == '' and Exists('$(GameDir)/data_sts2_linuxbsd_x86_64/sts2.dll')">$(GameDir)/data_sts2_linuxbsd_x86_64</Sts2DataDir>
+  </PropertyGroup>
+
+  <Target Name="ValidateGameReferences" BeforeTargets="ResolveReferences">
+    <Error Condition="'$(Sts2DataDir)' == '' or !Exists('$(Sts2DataDir)/sts2.dll')"
+           Text="Could not find sts2.dll. Pass -p:GameDir=&quot;path to Slay the Spire 2&quot; (or -p:Sts2DataDir=&quot;path to the data_sts2_* folder&quot;)." />
+  </Target>
+
+  <ItemGroup>
+    <!-- Lets the headless Godot tests reach internal types. -->
+    <InternalsVisibleTo Include="TextSizeTest" />
+  </ItemGroup>
+
+  <!-- Game-owned assemblies: compile against them but never ship copies. -->
+  <ItemGroup>
+    <Reference Include="sts2">
+      <HintPath>$(Sts2DataDir)/sts2.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="0Harmony">
+      <HintPath>$(Sts2DataDir)/0Harmony.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="GodotSharp">
+      <HintPath>$(Sts2DataDir)/GodotSharp.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+</Project>

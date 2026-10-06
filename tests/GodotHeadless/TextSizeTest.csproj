@@ -1,0 +1,25 @@
+<Project Sdk="Godot.NET.Sdk/4.5.1">
+  <!--
+    Headless test harness: loads the exact mod DLL that gets uploaded (workshop/content/) plus
+    the stand-in sts2.dll from ci/Sts2Stubs, and runs TestRunner.cs inside a real Godot 4.5.1
+    (.NET) engine. Run ci/build-release.sh first, then tests/run-godot-tests.sh.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <!-- Lets the tests run on whatever newer .NET runtime is installed. -->
+    <RollForward>Major</RollForward>
+    <EnableDynamicLoading>true</EnableDynamicLoading>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="TextSizeSetting">
+      <HintPath>../../workshop/content/TextSizeSetting.dll</HintPath>
+    </Reference>
+    <Reference Include="sts2">
+      <HintPath>../../ci/fake-game-data/sts2.dll</HintPath>
+    </Reference>
+    <!-- A different Harmony version than the one the mod was compiled against, on purpose. -->
+    <PackageReference Include="Lib.Harmony" Version="2.4.2" />
+  </ItemGroup>
+</Project>
