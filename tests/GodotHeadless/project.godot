@@ -6,3 +6,7 @@ run/main_scene="res://main.tscn"
 
 [dotnet]
 project/assembly_name="TextSizeTest"
+
+[display]
+window/size/viewport_width=1920
+window/size/viewport_height=1080

@@ -118,8 +118,9 @@ internal static class TextScaler
             var node = stack.Pop();
             if (node is Control control)
             {
-                // A new setting gets a fresh chance to fit at full size.
+                // A new setting gets a fresh chance to fit at full size, on one line.
                 control.RemoveMeta(FitKey);
+                FitGuard.Forget(control);
                 if (control is Label { LabelSettings: { } settings })
                     settings.RemoveMeta(FitKey);
 
