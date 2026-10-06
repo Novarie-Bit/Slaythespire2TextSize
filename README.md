@@ -1,15 +1,19 @@
 # Text Size Setting: a Slay the Spire 2 mod
 
-Adds a **Text Size** option to the game's own settings menu so text is easier to read.
+Adds readability options to the game's own settings menu.
 
 ```
 Settings > General
 
   Text Size                                 [ - ]   120%   [ + ]
+  Easy-to-Read Font                         [       Off       ]
+  High-Contrast Card Text                   [       On        ]
 ```
 
-- Anywhere from **70% to 200%**. Changes apply instantly and are remembered.
-- Works on its own: no other mods needed. Doesn't change gameplay or saves.
+- **Text Size:** anywhere from **70% to 200%**. Text never spills out of its box.
+- **Easy-to-Read Font:** switches the game's text to [Atkinson Hyperlegible](https://www.brailleinstitute.org/freefont/), designed by the Braille Institute for low-vision readers. Languages it doesn't cover keep the game's own font.
+- **High-Contrast Card Text:** text on cards becomes bright white with a thick black outline. Coloured card text keeps its colour, just brighter. Only cards change; the rest of the game looks normal.
+- Changes apply instantly and are remembered. Works on its own: no other mods needed. Doesn't change gameplay or saves.
 
 **Players:** subscribe on the Steam Workshop, start the game, and say yes if it asks about loading mods. That's all.
 
@@ -44,13 +48,13 @@ The first time, the script downloads MegaCrit's official uploader ([megacrit/sts
 
 **If it's your first Workshop upload ever:** Steam hides the item until you accept the Workshop agreement. The item's page has a notice linking to it.
 
-### After the first upload
+### Your Workshop item
 
-The upload creates `workshop/mod_id.txt`, which holds your Workshop item's number. It's how later uploads update the same item instead of making a duplicate. Don't delete it. Also add it to this repository (or ask Claude to) so a fresh download keeps it.
+`workshop/mod_id.txt` holds your Workshop item's number (3814426525) and is saved in this repository. It's how uploads update your existing item instead of making a duplicate, so don't delete it.
 
 ### Updating the mod later
 
-Get the new version of this repository, make sure `workshop/mod_id.txt` is in it, then double-click **`Upload to Steam Workshop.bat`** and pick **2**.
+Download the latest version of this repository (**Code > Download ZIP**), then double-click **`Upload to Steam Workshop.bat`** and pick **2**. It updates your existing Workshop item.
 
 ---
 
@@ -86,7 +90,10 @@ To build against a real install instead, use `scripts/package.ps1 -GameDir "...\
 | `Patches/FontSizePatches.cs` | Intercepts font sizes set from code: `AddThemeFontSizeOverride` and `LabelSettings.FontSize` |
 | `Patches/SettingsScreenPatch.cs` | Hooks `NSettingsScreen._Ready` to add the row |
 | `UI/TextSizeSettingRow.cs` | The row itself, styled after the native rows, with controller and keyboard focus |
-| `TextSizeConfig.cs` | Saves the percentage to `user://TextSizeMod/settings.cfg` |
+| `ReadableFont.cs` | Easy-to-Read Font: swaps fonts for Atkinson Hyperlegible (bundled in the DLL), keeping the game's font as a fallback |
+| `CardContrast.cs` | High-Contrast Card Text: brightens and outlines text inside cards (`NCard`) only, and restores it exactly when turned off |
+| `Redraw.cs` | Asks cached off-screen pictures (like cards) to redraw after text changes |
+| `TextSizeConfig.cs` | Saves the settings to `user://TextSizeMod/settings.cfg` |
 
 Every font size the game sets is stored on its node as the base size and replaced with the scaled size. Sizes baked into scenes and themes are picked up when a node enters the scene tree. Changing the setting re-applies everything from the stored base sizes, so changes never compound.
 
@@ -100,3 +107,7 @@ GODOT=/path/to/Godot_v4.5.1-stable_mono_linux.x86_64 tests/run-godot-tests.sh
 ```
 
 The tests load the exact DLL from `workshop/content/` into a real Godot 4.5.1 (.NET) engine, the version the game uses. They check scaling, restoring, persistence, clamping, row placement, focus and live updates. GitHub Actions runs them on every push. They don't replace trying the mod in the real game.
+
+## Credits
+
+The Easy-to-Read Font option uses **Atkinson Hyperlegible**, Copyright 2020 Braille Institute of America, Inc., licensed under the SIL Open Font License 1.1 (see `src/TextSize/Fonts/OFL.txt`; a copy ships with the mod as `AtkinsonHyperlegible-OFL.txt`).

@@ -41,6 +41,7 @@ dotnet run --project "$root/ci/RetargetReferences/RetargetReferences.csproj" -c 
 stage="$root/dist/$mod_id"
 rm -rf "$stage" && mkdir -p "$stage"
 cp "$manifest" "$dll" "$stage/"
+cp "$root/src/TextSize/Fonts/OFL.txt" "$stage/AtkinsonHyperlegible-OFL.txt"
 
 zip_root="$root/dist/zip"
 rm -rf "$zip_root" && mkdir -p "$zip_root/mods"

@@ -16,9 +16,31 @@ public partial class TestRunner : Node
         GD.Print($"{(ok ? "PASS" : "FAIL")}: {what} (got {actual}, expected {expected})");
     }
 
-    public override void _Ready() => Callable.From(Run).CallDeferred();
+    public override void _Ready()
+    {
+        // Watchdog: never let a stuck test keep the engine running.
+        GetTree().CreateTimer(300).Timeout += () =>
+        {
+            GD.PrintErr("Tests did not finish within 5 minutes.");
+            GetTree().Quit(2);
+        };
+        Callable.From(Run).CallDeferred();
+    }
 
     async void Run()
+    {
+        try
+        {
+            await RunTests();
+        }
+        catch (Exception e)
+        {
+            GD.PrintErr($"Test run crashed: {e}");
+            GetTree().Quit(3);
+        }
+    }
+
+    async Task RunTests()
     {
         DirAccess.RemoveAbsolute("user://TextSizeMod/settings.cfg");
         GetTree().Root.Size = new Vector2I(1920, 1080); // headless defaults to a 64x64 window
@@ -199,6 +221,97 @@ public partial class TestRunner : Node
         foreach (var node in new Node[] { frame, free, scrollArea, clipFrame, richFrame, lsFrame, lsFree, tallFrame }) node.QueueFree();
         TextSizeConfig.SetPercent(100);
 
+        // A card in hand: tilted, scaled, drawn into a cached off-screen viewport, and the
+        // setting is changed while it's on screen (like changing it mid-battle).
+        var cardViewport = new SubViewport { Size = new Vector2I(800, 800), RenderTargetUpdateMode = SubViewport.UpdateMode.Disabled };
+        root.AddChild(cardViewport);
+        var card = new Control { Position = new Vector2(300, 300), Size = new Vector2(300, 420), Rotation = 0.35f, Scale = new Vector2(0.8f, 0.8f) };
+        cardViewport.AddChild(card);
+        var cardText = MakeLabel("Block 5", 20);
+        card.AddChild(cardText);
+        cardText.Position = new Vector2(20, 330);
+        for (var i = 0; i < 5; i++) await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+
+        TextSizeConfig.SetPercent(200);
+        await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+        Check("cached card picture asked to redraw", cardViewport.RenderTargetUpdateMode, SubViewport.UpdateMode.Once);
+        for (var i = 0; i < 150; i++) await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+        Check("tilted card text not mistaken for spilling over", FitGuard.Overflows(cardText), false);
+        Check("tilted card text grows to 200% mid-battle", cardText.GetThemeFontSize("font_size"), 40);
+        cardViewport.QueueFree();
+        TextSizeConfig.SetPercent(100);
+
+        // Easy-to-read font.
+        var fontLabel = new Label { Text = "Readable" };
+        root.AddChild(fontLabel);
+        var gameFont = fontLabel.GetThemeFont("font");
+        var rich = new RichTextLabel { Text = "[b]Bold[/b] text", BbcodeEnabled = true };
+        root.AddChild(rich);
+        var richOriginal = rich.GetThemeFont("normal_font");
+
+        TextSizeConfig.SetReadableFont(true);
+        var applied = fontLabel.GetThemeFont("font") as FontVariation;
+        Check("label switched to Atkinson Hyperlegible", applied?.BaseFont?.GetFontName(), "Atkinson Hyperlegible");
+        Check("readable font falls back to the game's font", applied?.Fallbacks.Contains(gameFont), true);
+        Check("missing characters still come from the game's font", applied?.HasChar('Ж'), gameFont.HasChar('Ж'));
+        var boldFace = (rich.GetThemeFont("bold_font") as FontVariation)?.BaseFont;
+        Check("bold text uses the bold face", boldFace is not null && (boldFace.GetFontStyle() & TextServer.FontStyle.Bold) != 0, true);
+        var custom = new FontVariation { BaseFont = gameFont, VariationEmbolden = 0.5f };
+        fontLabel.AddThemeFontOverride("font", custom);
+        Check("font the game sets later is swapped too", fontLabel.GetThemeFont("font") is FontVariation swapped && swapped != custom && swapped.Fallbacks.Contains(custom), true);
+        var lateLabel = new Label { Text = "Late" };
+        root.AddChild(lateLabel);
+        Check("new labels get the readable font", (lateLabel.GetThemeFont("font") as FontVariation)?.BaseFont?.GetFontName(), "Atkinson Hyperlegible");
+
+        TextSizeConfig.SetReadableFont(false);
+        Check("off restores the font the game set", fontLabel.GetThemeFont("font") == custom, true);
+        Check("off restores rich text fonts", rich.GetThemeFont("normal_font") == richOriginal, true);
+        Check("off restores new labels", lateLabel.GetThemeFont("font") == gameFont, true);
+        foreach (var node in new Node[] { fontLabel, rich, lateLabel }) node.QueueFree();
+
+        // High-contrast card text: cards only.
+        var cardNode = new MegaCrit.Sts2.Core.Nodes.Cards.NCard { Size = new Vector2(300, 420) };
+        root.AddChild(cardNode);
+        var cardTitle = new Label { Text = "Strike" };
+        cardNode.AddChild(cardTitle);
+        var cardCost = new Label { Text = "1" };
+        cardCost.AddThemeColorOverride("font_color", new Color(0.9f, 0.2f, 0.2f));
+        cardNode.AddChild(cardCost);
+        var cardDesc = new RichTextLabel { Text = "Deal 6 damage." };
+        cardNode.AddChild(cardDesc);
+        var lsOriginal = new LabelSettings { FontColor = new Color(0.8f, 0.8f, 0.7f), OutlineSize = 2 };
+        var lsCard = new Label { Text = "x", LabelSettings = lsOriginal };
+        cardNode.AddChild(lsCard);
+        var outside = new Label { Text = "Map" };
+        root.AddChild(outside);
+        var outsideColor = outside.GetThemeColor("font_color");
+
+        TextSizeConfig.SetHighContrastCards(true);
+        Check("card title is pure white", cardTitle.GetThemeColor("font_color"), Colors.White);
+        Check("card title has a black outline", cardTitle.GetThemeColor("font_outline_color"), Colors.Black);
+        Check("card title outline is thick", cardTitle.GetThemeConstant("outline_size") >= 8, true);
+        Check("card description is pure white", cardDesc.GetThemeColor("default_color"), Colors.White);
+        var cost = cardCost.GetThemeColor("font_color");
+        Check("red card text stays red, at full brightness", cost.R > 0.99f && cost.G < 0.6f && cost.B < 0.6f, true);
+        Check("LabelSettings card text gets its own high-contrast copy", lsCard.LabelSettings != lsOriginal && lsCard.LabelSettings.FontColor == Colors.White && lsCard.LabelSettings.OutlineSize >= 8, true);
+        Check("shared LabelSettings left untouched", lsOriginal.FontColor, new Color(0.8f, 0.8f, 0.7f));
+        Check("text outside cards is not changed", outside.GetThemeColor("font_color") == outsideColor && !outside.HasThemeColorOverride("font_outline_color"), true);
+        cardCost.AddThemeColorOverride("font_color", new Color(0.2f, 0.7f, 0.2f));
+        var green = cardCost.GetThemeColor("font_color");
+        Check("colour the game sets later is made high-contrast", green.G > 0.99f && green.R < 0.6f, true);
+        var lateCard = new MegaCrit.Sts2.Core.Nodes.Cards.NCard();
+        var lateCardText = new Label { Text = "Drawn" };
+        lateCard.AddChild(lateCardText);
+        root.AddChild(lateCard);
+        Check("cards created later are high-contrast", lateCardText.GetThemeColor("font_color"), Colors.White);
+
+        TextSizeConfig.SetHighContrastCards(false);
+        Check("off removes the title colour override", cardTitle.HasThemeColorOverride("font_color"), false);
+        Check("off removes the title outline override", cardTitle.HasThemeConstantOverride("outline_size"), false);
+        Check("off restores the latest colour the game set", cardCost.GetThemeColor("font_color"), new Color(0.2f, 0.7f, 0.2f));
+        Check("off restores the original LabelSettings", lsCard.LabelSettings == lsOriginal, true);
+        foreach (var node in new Node[] { cardNode, outside, lateCard }) node.QueueFree();
+
         // Settings screen injection.
         var screen = new NSettingsScreen { Name = "Settings" };
         var scroll = new Control { Name = "Scroll", Size = new Vector2(1000, 600) };
@@ -224,7 +337,7 @@ public partial class TestRunner : Node
         await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
 
         var names = content.GetChildren().Select(c => c.Name.ToString()).ToArray();
-        Check("row order", string.Join(",", names), "Fullscreen,TextSizeModDivider,TextSizeModSetting,CreditsDivider,Credits");
+        Check("row order", string.Join(",", names), "Fullscreen,TextSizeModDivider,TextSizeModSetting,TextSizeModDivider1,TextSizeModReadableFont,TextSizeModDivider2,TextSizeModHighContrast,CreditsDivider,Credits");
         Check("panel grew", panel.Size.Y > before, true);
         var row = content.GetNode<Control>("TextSizeModSetting");
         var inc = row.GetNode<Button>("ContentRow/IncreaseButton");
@@ -232,9 +345,26 @@ public partial class TestRunner : Node
         var value = row.GetNode<Label>("ContentRow/Value");
         Check("value text", value.Text, "100%");
         Check("title font size copied from native", row.GetNode<Label>("ContentRow/Label").GetThemeFontSize("font_size"), 28);
-        Check("focus up from row", inc.GetNodeOrNull(inc.FocusNeighborTop) == nativeButton, true);
-        Check("focus down from row", dec.GetNodeOrNull(dec.FocusNeighborBottom) == credits, true);
-        Check("native above points down to row", nativeButton.GetNodeOrNull(nativeButton.FocusNeighborBottom) == inc, true);
+        var fontToggle = content.GetNode<Button>("TextSizeModReadableFont/ContentRow/ToggleButton");
+        var contrastToggle = content.GetNode<Button>("TextSizeModHighContrast/ContentRow/ToggleButton");
+        Check("font toggle starts Off", fontToggle.Text, "Off");
+        Check("contrast toggle starts Off", contrastToggle.Text, "Off");
+        Check("focus up from size row", inc.GetNodeOrNull(inc.FocusNeighborTop) == nativeButton, true);
+        Check("focus down from size row", dec.GetNodeOrNull(dec.FocusNeighborBottom) == fontToggle, true);
+        Check("focus down from font row", fontToggle.GetNodeOrNull(fontToggle.FocusNeighborBottom) == contrastToggle, true);
+        Check("focus down from contrast row", contrastToggle.GetNodeOrNull(contrastToggle.FocusNeighborBottom) == credits, true);
+        Check("native above points down to rows", nativeButton.GetNodeOrNull(nativeButton.FocusNeighborBottom) == inc, true);
+        Check("native below points up to rows", credits.GetNodeOrNull(credits.FocusNeighborTop) == contrastToggle, true);
+
+        fontToggle.EmitSignal(BaseButton.SignalName.Pressed);
+        Check("font toggle turns the setting on", TextSizeConfig.ReadableFont, true);
+        Check("font toggle shows On", fontToggle.Text, "On");
+        fontToggle.EmitSignal(BaseButton.SignalName.Pressed);
+        Check("font toggle turns it back off", TextSizeConfig.ReadableFont, false);
+        contrastToggle.EmitSignal(BaseButton.SignalName.Pressed);
+        Check("contrast toggle turns the setting on", TextSizeConfig.HighContrastCards, true);
+        contrastToggle.EmitSignal(BaseButton.SignalName.Pressed);
+        Check("contrast toggle shows Off again", contrastToggle.Text, "Off");
 
         var h0 = panel.Size.Y;
         inc.EmitSignal(BaseButton.SignalName.Pressed);

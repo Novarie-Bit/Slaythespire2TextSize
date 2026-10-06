@@ -41,6 +41,11 @@
   </Target>
 
   <ItemGroup>
+    <!-- Atkinson Hyperlegible (SIL Open Font License, see Fonts/OFL.txt), bundled inside the DLL. -->
+    <EmbeddedResource Include="Fonts\*.ttf" LogicalName="Fonts/%(Filename)%(Extension)" />
+  </ItemGroup>
+
+  <ItemGroup>
     <!-- Lets the headless Godot tests reach internal types. -->
     <InternalsVisibleTo Include="TextSizeTest" />
   </ItemGroup>

@@ -47,6 +47,7 @@ if (Test-Path $stage) { Remove-Item $stage -Recurse -Force }
 New-Item -ItemType Directory -Force -Path $stage | Out-Null
 Copy-Item $manifestPath $stage
 Copy-Item $dll $stage
+Copy-Item (Join-Path $root "src/TextSize/Fonts/OFL.txt") (Join-Path $stage "AtkinsonHyperlegible-OFL.txt")
 
 # Install-ready zip: mods/TextSizeSetting/...
 $zipRoot = Join-Path $dist "zip"

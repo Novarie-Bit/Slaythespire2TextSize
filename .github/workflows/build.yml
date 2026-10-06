@@ -7,6 +7,7 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
@@ -25,4 +26,5 @@ jobs:
           echo "GODOT=$RUNNER_TEMP/Godot_v4.5.1-stable_mono_linux_x86_64/Godot_v4.5.1-stable_mono_linux.x86_64" >> "$GITHUB_ENV"
 
       - name: Run headless Godot tests
+        timeout-minutes: 20
         run: tests/run-godot-tests.sh

@@ -3,7 +3,7 @@ using Godot;
 namespace TextSize;
 
 /// <summary>
-/// Stores the chosen text size. Saved with Godot's ConfigFile under the game's user data
+/// Stores the mod's settings: text size, easy-to-read font, and high-contrast card text. Saved with Godot's ConfigFile under the game's user data
 /// folder (not under mods/, where every .json is treated as a mod manifest).
 /// </summary>
 internal static class TextSizeConfig
@@ -17,6 +17,8 @@ internal static class TextSizeConfig
     private const string ConfigPath = ConfigDir + "/settings.cfg";
     private const string Section = "text";
     private const string PercentKey = "percent";
+    private const string ReadableFontKey = "readable_font";
+    private const string HighContrastCardsKey = "high_contrast_cards";
 
     public static int Percent { get; private set; } = DefaultPercent;
 
@@ -24,7 +26,16 @@ internal static class TextSizeConfig
 
     public static bool IsDefault => Percent == DefaultPercent;
 
-    /// <summary>Raised on the main thread after the text size changes.</summary>
+    /// <summary>Swap the game's fonts for Atkinson Hyperlegible.</summary>
+    public static bool ReadableFont { get; private set; }
+
+    /// <summary>White text with a thick black outline, on cards only.</summary>
+    public static bool HighContrastCards { get; private set; }
+
+    /// <summary>True when every option is at the game's normal look.</summary>
+    public static bool IsUntouched => IsDefault && !ReadableFont && !HighContrastCards;
+
+    /// <summary>Raised on the main thread after any setting changes.</summary>
     public static event Action? Changed;
 
     public static void Load()
@@ -41,6 +52,8 @@ internal static class TextSizeConfig
         }
 
         Percent = Normalize(config.GetValue(Section, PercentKey, DefaultPercent).AsInt32());
+        ReadableFont = config.GetValue(Section, ReadableFontKey, false).AsBool();
+        HighContrastCards = config.GetValue(Section, HighContrastCardsKey, false).AsBool();
     }
 
     public static void SetPercent(int percent)
@@ -56,6 +69,26 @@ internal static class TextSizeConfig
 
     public static void Step(int direction) => SetPercent(Percent + Math.Sign(direction) * StepPercent);
 
+    public static void SetReadableFont(bool on)
+    {
+        if (on == ReadableFont)
+            return;
+
+        ReadableFont = on;
+        Save();
+        Changed?.Invoke();
+    }
+
+    public static void SetHighContrastCards(bool on)
+    {
+        if (on == HighContrastCards)
+            return;
+
+        HighContrastCards = on;
+        Save();
+        Changed?.Invoke();
+    }
+
     private static int Normalize(int percent)
     {
         var snapped = (int)MathF.Round(percent / (float)StepPercent) * StepPercent;
@@ -68,6 +101,8 @@ internal static class TextSizeConfig
 
         var config = new ConfigFile();
         config.SetValue(Section, PercentKey, Percent);
+        config.SetValue(Section, ReadableFontKey, ReadableFont);
+        config.SetValue(Section, HighContrastCardsKey, HighContrastCards);
         var error = config.Save(ConfigPath);
         if (error != Error.Ok)
             ModEntry.LogError($"Could not save {ConfigPath} ({error}).");

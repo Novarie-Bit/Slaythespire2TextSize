@@ -55,7 +55,7 @@ internal static class MegaText
         }
         else
         {
-            if (factor <= 1f)
+            if (Mathf.IsEqualApprox(factor, 1f))
                 return;
 
             baseMax = accessors.GetMax(control);
