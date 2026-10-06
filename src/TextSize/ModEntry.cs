@@ -42,9 +42,19 @@ public static class ModEntry
             }
             catch (Exception e)
             {
-                LogError($"Patch {type.Name} failed and was skipped: {e.Message}");
+                LogError($"Patch {type.Name} failed and was skipped: {Describe(e)}");
             }
         }
+    }
+
+    /// <summary>The message of an exception and every exception inside it (Harmony wraps the real cause).</summary>
+    private static string Describe(Exception e)
+    {
+        var parts = new List<string>();
+        for (Exception? current = e; current is not null; current = current.InnerException)
+            parts.Add($"{current.GetType().Name}: {current.Message}");
+
+        return string.Join(" -> ", parts);
     }
 
     internal static void Log(string message) => GD.Print($"[{ModId}] {message}");
