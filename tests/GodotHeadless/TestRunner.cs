@@ -199,6 +199,26 @@ public partial class TestRunner : Node
         foreach (var node in new Node[] { frame, free, scrollArea, clipFrame, richFrame, lsFrame, lsFree, tallFrame }) node.QueueFree();
         TextSizeConfig.SetPercent(100);
 
+        // A card in hand: tilted, scaled, drawn into a cached off-screen viewport, and the
+        // setting is changed while it's on screen (like changing it mid-battle).
+        var cardViewport = new SubViewport { Size = new Vector2I(800, 800), RenderTargetUpdateMode = SubViewport.UpdateMode.Disabled };
+        root.AddChild(cardViewport);
+        var card = new Control { Position = new Vector2(300, 300), Size = new Vector2(300, 420), Rotation = 0.35f, Scale = new Vector2(0.8f, 0.8f) };
+        cardViewport.AddChild(card);
+        var cardText = MakeLabel("Block 5", 20);
+        card.AddChild(cardText);
+        cardText.Position = new Vector2(20, 330);
+        for (var i = 0; i < 5; i++) await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+
+        TextSizeConfig.SetPercent(200);
+        await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+        Check("cached card picture asked to redraw", cardViewport.RenderTargetUpdateMode, SubViewport.UpdateMode.Once);
+        for (var i = 0; i < 150; i++) await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+        Check("tilted card text not mistaken for spilling over", FitGuard.Overflows(cardText), false);
+        Check("tilted card text grows to 200% mid-battle", cardText.GetThemeFontSize("font_size"), 40);
+        cardViewport.QueueFree();
+        TextSizeConfig.SetPercent(100);
+
         // Settings screen injection.
         var screen = new NSettingsScreen { Name = "Settings" };
         var scroll = new Control { Name = "Scroll", Size = new Vector2(1000, 600) };

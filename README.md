@@ -44,13 +44,13 @@ The first time, the script downloads MegaCrit's official uploader ([megacrit/sts
 
 **If it's your first Workshop upload ever:** Steam hides the item until you accept the Workshop agreement. The item's page has a notice linking to it.
 
-### After the first upload
+### Your Workshop item
 
-The upload creates `workshop/mod_id.txt`, which holds your Workshop item's number. It's how later uploads update the same item instead of making a duplicate. Don't delete it. Also add it to this repository (or ask Claude to) so a fresh download keeps it.
+`workshop/mod_id.txt` holds your Workshop item's number (3814426525) and is saved in this repository. It's how uploads update your existing item instead of making a duplicate, so don't delete it.
 
 ### Updating the mod later
 
-Get the new version of this repository, make sure `workshop/mod_id.txt` is in it, then double-click **`Upload to Steam Workshop.bat`** and pick **2**.
+Download the latest version of this repository (**Code > Download ZIP**), then double-click **`Upload to Steam Workshop.bat`** and pick **2**. It updates your existing Workshop item.
 
 ---
 

@@ -98,6 +98,7 @@ internal static class TextScaler
         _installed = true;
         tree.NodeAdded += OnNodeAdded;
         FitGuard.Install(tree);
+        Redraw.Install(tree);
 
         if (!TextSizeConfig.IsDefault)
             RefreshAll();
@@ -182,6 +183,9 @@ internal static class TextScaler
         if (names is null)
             return;
 
+        if (reflow)
+            Redraw.Request(control);
+
         if (MegaText.UsesAutoSize(control))
         {
             if (reflow)
@@ -197,8 +201,11 @@ internal static class TextScaler
                 {
                     Callable.From(() =>
                     {
-                        if (GodotObject.IsInstanceValid(control))
-                            MegaText.ApplyMaxFontSize(control, FactorFor(control), reflow: true);
+                        if (!GodotObject.IsInstanceValid(control))
+                            return;
+
+                        MegaText.ApplyMaxFontSize(control, FactorFor(control), reflow: true);
+                        Redraw.Request(control);
                     }).CallDeferred();
                 }
             }

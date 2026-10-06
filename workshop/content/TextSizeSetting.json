@@ -3,7 +3,7 @@
   "name": "Text Size Setting",
   "author": "novarie-bit",
   "description": "Adds a Text Size option to Settings > General. Make in-game text bigger (or smaller), from 70% to 200%.",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "has_pck": false,
   "has_dll": true,
   "dependencies": [],

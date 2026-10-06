@@ -164,7 +164,10 @@ internal static class FitGuard
     private static bool Adjust(Control control)
     {
         if (TryWrap(control))
+        {
+            Redraw.Request(control);
             return true;
+        }
 
         var factor = TextScaler.FactorFor(control);
         if (factor > 1f)
@@ -259,14 +262,32 @@ internal static class FitGuard
         if (frame is null)
             return false;
 
-        var bounds = frame.GetGlobalRect().Grow(Tolerance);
+        // Compare in the frame's own coordinates, so tilted or scaled things (like the fanned-out
+        // cards in your hand) are measured correctly.
+        var bounds = new Rect2(Vector2.Zero, frame.Size).Grow(Tolerance);
+        var toFrame = frame.GetGlobalTransform().AffineInverse();
         for (Node? node = control; node is Control current && node != frame; node = node.GetParent())
         {
-            if (!bounds.Encloses(current.GetGlobalRect()))
+            if (!bounds.Encloses(RectIn(toFrame, current)))
                 return true;
         }
 
         return false;
+    }
+
+    /// <summary>The control's rectangle, as seen from the frame (axis-aligned bounds).</summary>
+    private static Rect2 RectIn(Transform2D toFrame, Control control)
+    {
+        var transform = toFrame * control.GetGlobalTransform();
+        var size = control.Size;
+        Vector2[] corners = [Vector2.Zero, new(size.X, 0f), new(0f, size.Y), size];
+
+        var first = transform * corners[0];
+        var rect = new Rect2(first, Vector2.Zero);
+        foreach (var corner in corners)
+            rect = rect.Expand(transform * corner);
+
+        return rect;
     }
 
     private static Control? FindFrame(Control control)
