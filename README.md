@@ -6,13 +6,19 @@ Adds readability options to the game's own settings menu.
 Settings > General
 
   Text Size                                 [ - ]   120%   [ + ]
+  Card Text Size                            [ - ]   150%   [ + ]
   Easy-to-Read Font                         [       Off       ]
+  Bold Text                                 [       On        ]
+  Wider Text Spacing                        [       Off       ]
   High-Contrast Card Text                   [       On        ]
+  High-Contrast Tooltips                    [       Off       ]
 ```
 
-- **Text Size:** anywhere from **70% to 200%**. Text never spills out of its box.
+- **Text Size** and **Card Text Size:** anywhere from **70% to 200%**, separately for cards and everything else. Text never spills out of its box or pushes things off the screen.
 - **Easy-to-Read Font:** switches the game's text to [Atkinson Hyperlegible](https://www.brailleinstitute.org/freefont/), designed by the Braille Institute for low-vision readers. Languages it doesn't cover keep the game's own font.
-- **High-Contrast Card Text:** text on cards becomes bright white with a thick black outline. Coloured card text keeps its colour, just brighter. Only cards change; the rest of the game looks normal.
+- **Bold Text:** makes all text thicker.
+- **Wider Text Spacing:** adds a little space between letters and between lines.
+- **High-Contrast Card Text** and **High-Contrast Tooltips:** bright white text with a thick black outline, on cards and/or in pop-up tooltips. Coloured text keeps its colour, just brighter. Nothing else changes.
 - Changes apply instantly and are remembered. Works on its own: no other mods needed. Doesn't change gameplay or saves.
 
 **Players:** subscribe on the Steam Workshop, start the game, and say yes if it asks about loading mods. That's all.
@@ -90,8 +96,9 @@ To build against a real install instead, use `scripts/package.ps1 -GameDir "...\
 | `Patches/FontSizePatches.cs` | Intercepts font sizes set from code: `AddThemeFontSizeOverride` and `LabelSettings.FontSize` |
 | `Patches/SettingsScreenPatch.cs` | Hooks `NSettingsScreen._Ready` to add the row |
 | `UI/TextSizeSettingRow.cs` | The row itself, styled after the native rows, with controller and keyboard focus |
-| `ReadableFont.cs` | Easy-to-Read Font: swaps fonts for Atkinson Hyperlegible (bundled in the DLL), keeping the game's font as a fallback |
-| `CardContrast.cs` | High-Contrast Card Text: brightens and outlines text inside cards (`NCard`) only, and restores it exactly when turned off |
+| `FontTweaks.cs` | Easy-to-Read Font, Bold Text and Wider Text Spacing: swaps fonts for tweaked versions (Atkinson Hyperlegible is bundled in the DLL, with the game's font as a fallback) and adds line spacing |
+| `HighContrast.cs` | High-Contrast Card Text / Tooltips: brightens and outlines text inside cards (`NCard`) and/or tooltips (`NHoverTipSet`) only, and restores it exactly when turned off |
+| `GameNodes.cs` | Recognises card and tooltip text (Card Text Size, high contrast) |
 | `Redraw.cs` | Asks cached off-screen pictures (like cards) to redraw after text changes |
 | `TextSizeConfig.cs` | Saves the settings to `user://TextSizeMod/settings.cfg` |
 

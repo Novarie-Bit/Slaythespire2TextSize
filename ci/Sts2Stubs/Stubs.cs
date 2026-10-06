@@ -34,6 +34,13 @@ namespace MegaCrit.Sts2.Core.Nodes.Cards
     }
 }
 
+namespace MegaCrit.Sts2.Core.Nodes.HoverTips
+{
+    public partial class NHoverTipSet : Control
+    {
+    }
+}
+
 namespace MegaCrit.Sts2.addons.mega_text
 {
     // Mimic the game's auto-sizing: try sizes from MaxFontSize down and apply the first that

@@ -7,8 +7,12 @@ namespace TextSize.UI;
 /// Builds the mod's rows and inserts them into the General tab of the game's settings screen:
 ///
 ///   Text Size                    [-]  120%  [+]
+///   Card Text Size               [-]  150%  [+]
 ///   Easy-to-Read Font            [     Off     ]
+///   Bold Text                    [     Off     ]
+///   Wider Text Spacing           [     Off     ]
 ///   High-Contrast Card Text      [     On      ]
+///   High-Contrast Tooltips       [     Off     ]
 ///
 /// Built from plain Godot controls so it doesn't depend on the game's private scenes, but it
 /// borrows fonts and colours from the native rows so it blends in.
@@ -16,8 +20,12 @@ namespace TextSize.UI;
 internal static class TextSizeSettingRow
 {
     private const string RowName = "TextSizeModSetting";
+    private const string CardSizeRowName = "TextSizeModCardSize";
     private const string ReadableFontRowName = "TextSizeModReadableFont";
+    private const string BoldRowName = "TextSizeModBold";
+    private const string SpacingRowName = "TextSizeModSpacing";
     private const string HighContrastRowName = "TextSizeModHighContrast";
+    private const string HighContrastTooltipsRowName = "TextSizeModHighContrastTooltips";
     private const string DividerName = "TextSizeModDivider";
 
     private const int DefaultLabelFontSize = 28;
@@ -56,7 +64,20 @@ internal static class TextSizeSettingRow
         var divider = CreateDivider(content);
         Control[] rows =
         [
-            CreateSizeRow(nativeLabel),
+            CreateSizeRow(
+                nativeLabel,
+                RowName,
+                "Text Size",
+                "Makes text larger or smaller everywhere except on cards (cards have their own size below). Text never spills out of its box: where space is tight it grows as much as fits.",
+                () => TextSizeConfig.Percent,
+                TextSizeConfig.Step),
+            CreateSizeRow(
+                nativeLabel,
+                CardSizeRowName,
+                "Card Text Size",
+                "Makes the text on cards larger or smaller, separately from the rest of the game.",
+                () => TextSizeConfig.CardPercent,
+                TextSizeConfig.StepCard),
             CreateToggleRow(
                 nativeLabel,
                 ReadableFontRowName,
@@ -66,11 +87,32 @@ internal static class TextSizeSettingRow
                 TextSizeConfig.SetReadableFont),
             CreateToggleRow(
                 nativeLabel,
+                BoldRowName,
+                "Bold Text",
+                "Makes all text thicker and heavier, so it stands out against busy backgrounds.",
+                () => TextSizeConfig.BoldText,
+                TextSizeConfig.SetBoldText),
+            CreateToggleRow(
+                nativeLabel,
+                SpacingRowName,
+                "Wider Text Spacing",
+                "Adds a little extra space between letters and between lines, which many people with dyslexia or low vision find easier to read.",
+                () => TextSizeConfig.WideSpacing,
+                TextSizeConfig.SetWideSpacing),
+            CreateToggleRow(
+                nativeLabel,
                 HighContrastRowName,
                 "High-Contrast Card Text",
                 "Makes the text on cards bright white with a thick black outline. Coloured card text keeps its colour, just brighter. The rest of the game isn't changed.",
                 () => TextSizeConfig.HighContrastCards,
                 TextSizeConfig.SetHighContrastCards),
+            CreateToggleRow(
+                nativeLabel,
+                HighContrastTooltipsRowName,
+                "High-Contrast Tooltips",
+                "Makes the text in pop-up tooltips (keywords, status effects, relics...) bright white with a thick black outline. Coloured text keeps its colour, just brighter.",
+                () => TextSizeConfig.HighContrastTooltips,
+                TextSizeConfig.SetHighContrastTooltips),
         ];
 
         // Divider above the block, then the rows separated by their own dividers.
@@ -133,13 +175,10 @@ internal static class TextSizeSettingRow
         return (row, hbox);
     }
 
-    private static MarginContainer CreateSizeRow(RichTextLabel? nativeLabel)
+    private static MarginContainer CreateSizeRow(
+        RichTextLabel? nativeLabel, string name, string titleText, string tooltip, Func<int> getPercent, Action<int> step)
     {
-        var (row, hbox) = CreateRowShell(
-            nativeLabel,
-            RowName,
-            "Text Size",
-            "Makes in-game text larger or smaller. Text never spills out of its box: where space is tight it grows as much as fits.");
+        var (row, hbox) = CreateRowShell(nativeLabel, name, titleText, tooltip);
 
         var decrease = CreateButton(nativeLabel, "-", "DecreaseButton");
         var value = CreateLabel(nativeLabel, "");
@@ -152,17 +191,18 @@ internal static class TextSizeSettingRow
         hbox.AddChild(value);
         hbox.AddChild(increase);
 
-        decrease.Pressed += () => TextSizeConfig.Step(-1);
-        increase.Pressed += () => TextSizeConfig.Step(+1);
+        decrease.Pressed += () => step(-1);
+        increase.Pressed += () => step(+1);
 
         ListenWhileOnScreen(row, () =>
         {
             if (!GodotObject.IsInstanceValid(value))
                 return;
 
-            value.Text = $"{TextSizeConfig.Percent}%";
-            decrease.Disabled = TextSizeConfig.Percent <= TextSizeConfig.MinPercent;
-            increase.Disabled = TextSizeConfig.Percent >= TextSizeConfig.MaxPercent;
+            var percent = getPercent();
+            value.Text = $"{percent}%";
+            decrease.Disabled = percent <= TextSizeConfig.MinPercent;
+            increase.Disabled = percent >= TextSizeConfig.MaxPercent;
         });
 
         return row;

@@ -392,6 +392,92 @@ public partial class TestRunner : Node
         Check("off restores the original LabelSettings", lsCard.LabelSettings == lsOriginal, true);
         foreach (var node in new Node[] { cardNode, outside, lateCard }) node.QueueFree();
 
+        // Bold Text and Wider Text Spacing.
+        var plain = new Label { Text = "Plain" };
+        root.AddChild(plain);
+        var plainFont = plain.GetThemeFont("font");
+        var lineBefore = plain.GetThemeConstant("line_spacing");
+        var spacedRich = new RichTextLabel { Text = "Rich" };
+        root.AddChild(spacedRich);
+        var richLineBefore = spacedRich.GetThemeConstant("line_separation");
+
+        TextSizeConfig.SetBoldText(true);
+        var bolded = plain.GetThemeFont("font") as FontVariation;
+        Check("bold text thickens the game's own font", bolded is not null && bolded.VariationEmbolden > 0 && bolded.BaseFont == plainFont, true);
+        TextSizeConfig.SetWideSpacing(true);
+        var spaced = plain.GetThemeFont("font") as FontVariation;
+        Check("wider spacing adds space between letters", spaced?.SpacingGlyph, 2);
+        Check("bold stays on together with spacing", spaced is not null && spaced.VariationEmbolden > 0, true);
+        Check("wider spacing adds space between lines", plain.GetThemeConstant("line_spacing"), lineBefore + 6);
+        Check("wider spacing adds space between rich text lines", spacedRich.GetThemeConstant("line_separation"), richLineBefore + 6);
+        plain.AddThemeConstantOverride("line_spacing", 10);
+        Check("line spacing the game sets later gets the extra space too", plain.GetThemeConstant("line_spacing"), 16);
+        TextSizeConfig.SetReadableFont(true);
+        var all = plain.GetThemeFont("font") as FontVariation;
+        Check("readable font, bold and spacing combine", all?.BaseFont?.GetFontName() == "Atkinson Hyperlegible" && all.VariationEmbolden > 0 && all.SpacingGlyph == 2, true);
+        TextSizeConfig.SetReadableFont(false);
+        TextSizeConfig.SetBoldText(false);
+        TextSizeConfig.SetWideSpacing(false);
+        Check("font options off restore the game's font", plain.GetThemeFont("font") == plainFont, true);
+        Check("spacing off restores the line spacing the game set", plain.GetThemeConstant("line_spacing"), 10);
+        Check("spacing off removes the rich text override", spacedRich.HasThemeConstantOverride("line_separation"), false);
+        plain.QueueFree();
+        spacedRich.QueueFree();
+
+        // Card Text Size is separate from Text Size.
+        var sizeCard = new MegaCrit.Sts2.Core.Nodes.Cards.NCard();
+        root.AddChild(sizeCard);
+        var cardLabel = MakeLabel("Strike", 20);
+        sizeCard.AddChild(cardLabel);
+        var uiLabel = MakeLabel("Menu", 20);
+        root.AddChild(uiLabel);
+        var sharedStyle = new LabelSettings();
+        sharedStyle.FontSize = 20;
+        var cardStyled = new Label { Text = "c", LabelSettings = sharedStyle };
+        sizeCard.AddChild(cardStyled);
+        var uiStyled = new Label { Text = "u", LabelSettings = sharedStyle };
+        root.AddChild(uiStyled);
+
+        TextSizeConfig.SetCardPercent(150);
+        Check("card text follows Card Text Size", cardLabel.GetThemeFontSize("font_size"), 30);
+        Check("other text ignores Card Text Size", uiLabel.GetThemeFontSize("font_size"), 20);
+        TextSizeConfig.SetPercent(120);
+        Check("card text ignores Text Size", cardLabel.GetThemeFontSize("font_size"), 30);
+        Check("other text follows Text Size", uiLabel.GetThemeFontSize("font_size"), 24);
+        Check("card label gets its own copy of a shared style", cardStyled.LabelSettings != sharedStyle && cardStyled.LabelSettings.FontSize == 30, true);
+        Check("other label keeps the shared style at Text Size", uiStyled.LabelSettings.FontSize, 24);
+        TextSizeConfig.SetPercent(100);
+        TextSizeConfig.SetCardPercent(100);
+        Check("card text back to normal", cardLabel.GetThemeFontSize("font_size"), 20);
+        Check("card style back to normal", cardStyled.LabelSettings.FontSize, 20);
+        foreach (var node in new Node[] { sizeCard, uiLabel, uiStyled }) node.QueueFree();
+
+        // Settings saved before Card Text Size existed: cards keep following the old Text Size.
+        var oldConfig = new ConfigFile();
+        oldConfig.SetValue("text", "percent", 150);
+        oldConfig.Save("user://TextSizeMod/settings.cfg");
+        TextSizeConfig.Load();
+        Check("old settings: Card Text Size starts at the old Text Size", TextSizeConfig.CardPercent, 150);
+        TextSizeConfig.SetPercent(100);
+        TextSizeConfig.SetCardPercent(100);
+
+        // High-contrast tooltips, separately from cards.
+        var tipSet = new MegaCrit.Sts2.Core.Nodes.HoverTips.NHoverTipSet();
+        root.AddChild(tipSet);
+        var tipLabel = new Label { Text = "Weak" };
+        tipSet.AddChild(tipLabel);
+        var plainCard = new MegaCrit.Sts2.Core.Nodes.Cards.NCard();
+        root.AddChild(plainCard);
+        var plainCardText = new Label { Text = "Bash" };
+        plainCard.AddChild(plainCardText);
+        TextSizeConfig.SetHighContrastTooltips(true);
+        Check("tooltip text is pure white", tipLabel.GetThemeColor("font_color"), Colors.White);
+        Check("tooltip text has a black outline", tipLabel.GetThemeColor("font_outline_color"), Colors.Black);
+        Check("cards stay normal with only tooltips on", plainCardText.HasThemeColorOverride("font_outline_color"), false);
+        TextSizeConfig.SetHighContrastTooltips(false);
+        Check("tooltip contrast off restores the text", tipLabel.HasThemeColorOverride("font_color"), false);
+        foreach (var node in new Node[] { tipSet, plainCard }) node.QueueFree();
+
         // Settings screen injection.
         var screen = new NSettingsScreen { Name = "Settings" };
         var scroll = new Control { Name = "Scroll", Size = new Vector2(1000, 600) };
@@ -417,7 +503,7 @@ public partial class TestRunner : Node
         await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
 
         var names = content.GetChildren().Select(c => c.Name.ToString()).ToArray();
-        Check("row order", string.Join(",", names), "Fullscreen,TextSizeModDivider,TextSizeModSetting,TextSizeModDivider1,TextSizeModReadableFont,TextSizeModDivider2,TextSizeModHighContrast,CreditsDivider,Credits");
+        Check("row order", string.Join(",", names), "Fullscreen,TextSizeModDivider,TextSizeModSetting,TextSizeModDivider1,TextSizeModCardSize,TextSizeModDivider2,TextSizeModReadableFont,TextSizeModDivider3,TextSizeModBold,TextSizeModDivider4,TextSizeModSpacing,TextSizeModDivider5,TextSizeModHighContrast,TextSizeModDivider6,TextSizeModHighContrastTooltips,CreditsDivider,Credits");
         Check("panel grew", panel.Size.Y > before, true);
         var row = content.GetNode<Control>("TextSizeModSetting");
         var inc = row.GetNode<Button>("ContentRow/IncreaseButton");
@@ -427,14 +513,36 @@ public partial class TestRunner : Node
         Check("title font size copied from native", row.GetNode<Label>("ContentRow/Label").GetThemeFontSize("font_size"), 28);
         var fontToggle = content.GetNode<Button>("TextSizeModReadableFont/ContentRow/ToggleButton");
         var contrastToggle = content.GetNode<Button>("TextSizeModHighContrast/ContentRow/ToggleButton");
+        var cardInc = content.GetNode<Button>("TextSizeModCardSize/ContentRow/IncreaseButton");
+        var boldToggle = content.GetNode<Button>("TextSizeModBold/ContentRow/ToggleButton");
+        var spacingToggle = content.GetNode<Button>("TextSizeModSpacing/ContentRow/ToggleButton");
+        var tooltipToggle = content.GetNode<Button>("TextSizeModHighContrastTooltips/ContentRow/ToggleButton");
         Check("font toggle starts Off", fontToggle.Text, "Off");
         Check("contrast toggle starts Off", contrastToggle.Text, "Off");
         Check("focus up from size row", inc.GetNodeOrNull(inc.FocusNeighborTop) == nativeButton, true);
-        Check("focus down from size row", dec.GetNodeOrNull(dec.FocusNeighborBottom) == fontToggle, true);
-        Check("focus down from font row", fontToggle.GetNodeOrNull(fontToggle.FocusNeighborBottom) == contrastToggle, true);
-        Check("focus down from contrast row", contrastToggle.GetNodeOrNull(contrastToggle.FocusNeighborBottom) == credits, true);
+        Check("focus down from size row", dec.GetNodeOrNull(dec.FocusNeighborBottom) == cardInc, true);
+        Check("focus down from card size row", cardInc.GetNodeOrNull(cardInc.FocusNeighborBottom) == fontToggle, true);
+        Check("focus down from font row", fontToggle.GetNodeOrNull(fontToggle.FocusNeighborBottom) == boldToggle, true);
+        Check("focus down from bold row", boldToggle.GetNodeOrNull(boldToggle.FocusNeighborBottom) == spacingToggle, true);
+        Check("focus down from spacing row", spacingToggle.GetNodeOrNull(spacingToggle.FocusNeighborBottom) == contrastToggle, true);
+        Check("focus down from card contrast row", contrastToggle.GetNodeOrNull(contrastToggle.FocusNeighborBottom) == tooltipToggle, true);
+        Check("focus down from tooltip contrast row", tooltipToggle.GetNodeOrNull(tooltipToggle.FocusNeighborBottom) == credits, true);
         Check("native above points down to rows", nativeButton.GetNodeOrNull(nativeButton.FocusNeighborBottom) == inc, true);
-        Check("native below points up to rows", credits.GetNodeOrNull(credits.FocusNeighborTop) == contrastToggle, true);
+        Check("native below points up to rows", credits.GetNodeOrNull(credits.FocusNeighborTop) == tooltipToggle, true);
+        cardInc.EmitSignal(BaseButton.SignalName.Pressed);
+        Check("card size + button raises Card Text Size", TextSizeConfig.CardPercent, 110);
+        Check("card size row shows its own value", content.GetNode<Label>("TextSizeModCardSize/ContentRow/Value").Text, "110%");
+        Check("Text Size unchanged by the card row", TextSizeConfig.Percent, 100);
+        TextSizeConfig.SetCardPercent(100);
+        boldToggle.EmitSignal(BaseButton.SignalName.Pressed);
+        Check("bold toggle turns the setting on", TextSizeConfig.BoldText, true);
+        boldToggle.EmitSignal(BaseButton.SignalName.Pressed);
+        spacingToggle.EmitSignal(BaseButton.SignalName.Pressed);
+        Check("spacing toggle turns the setting on", TextSizeConfig.WideSpacing, true);
+        spacingToggle.EmitSignal(BaseButton.SignalName.Pressed);
+        tooltipToggle.EmitSignal(BaseButton.SignalName.Pressed);
+        Check("tooltip contrast toggle turns the setting on", TextSizeConfig.HighContrastTooltips, true);
+        tooltipToggle.EmitSignal(BaseButton.SignalName.Pressed);
 
         fontToggle.EmitSignal(BaseButton.SignalName.Pressed);
         Check("font toggle turns the setting on", TextSizeConfig.ReadableFont, true);

@@ -93,13 +93,16 @@ internal static class FitGuard
     /// Text can only need help fitting when it's bigger than normal, or when the readable font
     /// (which can run a little wider than the game's) is on.
     /// </summary>
-    public static bool Active => TextSizeConfig.Scale > 1f || TextSizeConfig.ReadableFont;
+    public static bool Active => TextSizeConfig.Scale > 1f || TextSizeConfig.CardScale > 1f || TextSizeConfig.ChangesFont;
 
     /// <summary>
-    /// The smallest scale the guard may step down to: normal size, or slightly under it with the
-    /// readable font so a wider font can still fit where the game's font just fit.
+    /// The smallest scale the guard may step down to: normal size, or slightly under it when a
+    /// font option is on (the readable font, bold text and wider spacing can all take more room
+    /// than the game's font, so text that just fit before may need to go a bit smaller).
     /// </summary>
-    public static float Floor => Math.Min(1f, TextSizeConfig.Scale) * (TextSizeConfig.ReadableFont ? 0.85f : 1f);
+    public static float FloorFor(float baseScale) => Math.Min(1f, baseScale) * (TextSizeConfig.ChangesFont ? 0.85f : 1f);
+
+    private static float FloorFor(Control control) => FloorFor(TextScaler.BaseScaleFor(control));
 
     public static void Install(SceneTree tree) => tree.ProcessFrame += OnProcessFrame;
 
@@ -260,13 +263,13 @@ internal static class FitGuard
     private static void StartSearch(Control control, ulong id, Overflow kind)
     {
         var factor = TextScaler.FactorFor(control);
-        if (factor <= Floor + 0.001f)
+        if (factor <= FloorFor(control) + 0.001f)
         {
             GiveUp(control, kind);
             return;
         }
 
-        var search = new Search { Lo = Floor, Hi = factor, Kind = kind };
+        var search = new Search { Lo = FloorFor(control), Hi = factor, Kind = kind };
         lock (Lock)
             Searches[id] = search;
 
@@ -296,7 +299,7 @@ internal static class FitGuard
             return;
         }
 
-        if (over && current <= Floor + 0.001f)
+        if (over && current <= FloorFor(control) + 0.001f)
         {
             lock (Lock)
                 Searches.Remove(id);
@@ -324,7 +327,7 @@ internal static class FitGuard
         if (kind == Overflow.Screen)
         {
             control.SetMeta(ScreenExemptKey, true);
-            TextScaler.SetFitFactor(control, TextSizeConfig.Scale);
+            TextScaler.SetFitFactor(control, TextScaler.BaseScaleFor(control));
             Show(control);
             return;
         }
@@ -333,7 +336,7 @@ internal static class FitGuard
         {
             label.RemoveMeta(WrappedKey);
             label.AutowrapMode = TextServer.AutowrapMode.Off;
-            TextScaler.SetFitFactor(control, TextSizeConfig.Scale);
+            TextScaler.SetFitFactor(control, TextScaler.BaseScaleFor(control));
             Queue(control);
             return;
         }

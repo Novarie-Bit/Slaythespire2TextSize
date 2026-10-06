@@ -3,19 +3,32 @@ using Godot;
 namespace TextSize;
 
 /// <summary>
-/// The "Easy-to-Read Font" option: swaps the fonts on text controls for Atkinson Hyperlegible,
-/// a typeface the Braille Institute designed for low-vision readers. The font files are
-/// bundled inside the mod's DLL (SIL Open Font License, see Fonts/OFL.txt).
+/// The font options: Easy-to-Read Font, Bold Text and Wider Text Spacing.
+///
+/// Easy-to-Read Font swaps fonts for Atkinson Hyperlegible, a typeface the Braille Institute
+/// designed for low-vision readers (bundled inside the DLL, SIL Open Font License, see
+/// Fonts/OFL.txt). Bold Text thickens the strokes. Wider Text Spacing adds space between letters
+/// (in the font) and between lines (in the label).
 ///
 /// Works like the size scaling: every font the game assigns is remembered on the node as its
-/// "base" font and the readable replacement is applied in its place, so turning the option off
-/// puts the game's own fonts back. Each replacement keeps the original font as a fallback, so
+/// "base" font and a tweaked version is applied in its place, so turning the options off puts
+/// the game's own fonts back. With the readable font, the original font stays as a fallback, so
 /// characters Atkinson Hyperlegible doesn't have (Chinese, Japanese, Korean, Cyrillic...) still
 /// show up in the game's font.
 /// </summary>
-internal static class ReadableFont
+internal static class FontTweaks
 {
     private const string MetaPrefix = "textsize_mod_base_font_";
+
+    /// <summary>How much Bold Text thickens strokes (FontVariation embolden strength).</summary>
+    private const float Embolden = 0.6f;
+
+    /// <summary>Extra pixels between letters and between words with Wider Text Spacing.</summary>
+    private const int LetterSpacing = 2;
+    private const int WordSpacing = 4;
+
+    /// <summary>Extra pixels between lines with Wider Text Spacing.</summary>
+    private const int LineSpacing = 6;
 
     private static readonly StringName FontSlot = "font";
 
@@ -26,9 +39,17 @@ internal static class ReadableFont
 
     private static readonly StringName LabelSettingsBaseKey = MetaPrefix + "label_settings";
 
+    private static readonly StringName LabelLineSpacing = "line_spacing";
+    private static readonly StringName RichTextLineSpacing = "line_separation";
+    private static readonly StringName LineSnapshotKey = "textsize_mod_base_line_spacing";
+    private static readonly StringName SettingsLineBaseKey = "textsize_mod_base_settings_line_spacing";
+
     private static readonly object Lock = new();
-    private static readonly Dictionary<(ulong, Style), Font> Replacements = new();
+    private static readonly Dictionary<(ulong, Style, bool, bool, bool), Font> Replacements = new();
     private static readonly Dictionary<ulong, Font> OriginalOf = new();
+
+    [ThreadStatic]
+    private static bool _writing;
 
     private static Font?[]? _faces;
 
@@ -40,7 +61,10 @@ internal static class ReadableFont
         BoldItalic,
     }
 
-    public static bool Enabled => TextSizeConfig.ReadableFont && Faces is not null;
+    /// <summary>True when any font option is on (and, for the readable font, the font loaded).</summary>
+    public static bool Enabled => TextSizeConfig.BoldText || TextSizeConfig.WideSpacing || UseReadable;
+
+    private static bool UseReadable => TextSizeConfig.ReadableFont && Faces is not null;
 
     private static Font?[]? Faces
     {
@@ -58,7 +82,7 @@ internal static class ReadableFont
         }
     }
 
-    /// <summary>Applies (or removes) the readable font on one control.</summary>
+    /// <summary>Applies (or removes) the font options on one control.</summary>
     public static void Apply(Control control)
     {
         var slots = SlotsFor(control);
@@ -87,6 +111,8 @@ internal static class ReadableFont
 
         if (control is Label { LabelSettings: { } settings })
             Apply(settings);
+
+        ApplyLineSpacing(control);
     }
 
     private static void Apply(LabelSettings settings)
@@ -95,12 +121,25 @@ internal static class ReadableFont
         if (settings.HasMeta(LabelSettingsBaseKey))
             baseFont = settings.GetMeta(LabelSettingsBaseKey).As<Font>();
         else if (!Enabled || settings.Font is null)
-            return;
+            baseFont = null;
         else
             baseFont = settings.Font;
 
         if (baseFont is not null)
             settings.Font = baseFont; // the prefix swaps it
+
+        // Line spacing for labels using LabelSettings lives in the (shared) settings resource.
+        if (TextSizeConfig.WideSpacing)
+        {
+            if (!settings.HasMeta(SettingsLineBaseKey))
+                settings.SetMeta(SettingsLineBaseKey, settings.LineSpacing);
+            settings.LineSpacing = settings.GetMeta(SettingsLineBaseKey).AsSingle() + LineSpacing;
+        }
+        else if (settings.HasMeta(SettingsLineBaseKey))
+        {
+            settings.LineSpacing = settings.GetMeta(SettingsLineBaseKey).AsSingle();
+            settings.RemoveMeta(SettingsLineBaseKey);
+        }
     }
 
     // Harmony prefix target for Control.AddThemeFontOverride.
@@ -125,23 +164,107 @@ internal static class ReadableFont
         value = Enabled ? Replacement(original, StyleFor(FontSlot, original)) : original;
     }
 
+    // Harmony prefix target for Control.AddThemeConstantOverride (line spacing only).
+    internal static void OnConstantOverride(Control control, StringName name, ref int value)
+    {
+        if (_writing || !TextSizeConfig.WideSpacing || name != LineSpacingName(control))
+            return;
+
+        if (!control.HasMeta(LineSnapshotKey))
+            TakeLineSnapshot(control);
+
+        var snapshot = control.GetMeta(LineSnapshotKey).AsGodotDictionary();
+        snapshot["value"] = value;
+        snapshot["has"] = true;
+        value += LineSpacing;
+    }
+
+    private static void ApplyLineSpacing(Control control)
+    {
+        var name = LineSpacingName(control);
+        if (name is null)
+            return;
+
+        _writing = true;
+        try
+        {
+            if (TextSizeConfig.WideSpacing)
+            {
+                if (!control.HasMeta(LineSnapshotKey))
+                    TakeLineSnapshot(control);
+
+                var snapshot = control.GetMeta(LineSnapshotKey).AsGodotDictionary();
+                control.AddThemeConstantOverride(name, snapshot["value"].AsInt32() + LineSpacing);
+            }
+            else if (control.HasMeta(LineSnapshotKey))
+            {
+                var snapshot = control.GetMeta(LineSnapshotKey).AsGodotDictionary();
+                if (snapshot["has"].AsBool())
+                    control.AddThemeConstantOverride(name, snapshot["value"].AsInt32());
+                else
+                    control.RemoveThemeConstantOverride(name);
+                control.RemoveMeta(LineSnapshotKey);
+            }
+        }
+        finally
+        {
+            _writing = false;
+        }
+    }
+
+    private static void TakeLineSnapshot(Control control)
+    {
+        var name = LineSpacingName(control)!;
+        control.SetMeta(LineSnapshotKey, new Godot.Collections.Dictionary
+        {
+            ["value"] = control.GetThemeConstant(name),
+            ["has"] = control.HasThemeConstantOverride(name),
+        });
+    }
+
+    private static StringName? LineSpacingName(Control control) => control switch
+    {
+        RichTextLabel => RichTextLineSpacing,
+        Label => LabelLineSpacing,
+        _ => null,
+    };
+
     private static Font Replacement(Font original, Style style)
     {
-        var faces = Faces;
-        if (faces is null)
-            return original;
+        var readable = UseReadable;
+        var bold = TextSizeConfig.BoldText;
+        var spacing = TextSizeConfig.WideSpacing;
 
         lock (Lock)
         {
-            var key = (original.GetInstanceId(), style);
+            var key = (original.GetInstanceId(), style, readable, bold, spacing);
             if (Replacements.TryGetValue(key, out var cached) && GodotObject.IsInstanceValid(cached))
                 return cached;
 
-            var replacement = new FontVariation
+            var replacement = new FontVariation();
+            if (readable)
             {
-                BaseFont = faces[(int)style] ?? faces[0],
-                Fallbacks = new Godot.Collections.Array<Font> { original },
-            };
+                var faces = Faces!;
+                replacement.BaseFont = faces[(int)style] ?? faces[0];
+                replacement.Fallbacks = new Godot.Collections.Array<Font> { original };
+            }
+            else
+            {
+                replacement.BaseFont = original;
+            }
+
+            if (bold)
+            {
+                // Faces that are already bold need less extra weight.
+                var alreadyBold = style is Style.Bold or Style.BoldItalic;
+                replacement.VariationEmbolden = alreadyBold ? Embolden / 2f : Embolden;
+            }
+
+            if (spacing)
+            {
+                replacement.SpacingGlyph = LetterSpacing;
+                replacement.SpacingSpace = WordSpacing;
+            }
 
             Replacements[key] = replacement;
             OriginalOf[replacement.GetInstanceId()] = original;
@@ -197,7 +320,7 @@ internal static class ReadableFont
         {
             try
             {
-                using var stream = typeof(ReadableFont).Assembly.GetManifestResourceStream("Fonts/" + files[i]);
+                using var stream = typeof(FontTweaks).Assembly.GetManifestResourceStream("Fonts/" + files[i]);
                 if (stream is null)
                 {
                     ModEntry.LogError($"Bundled font {files[i]} is missing.");
