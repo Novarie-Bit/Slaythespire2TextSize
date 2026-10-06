@@ -172,6 +172,12 @@ function Invoke-Upload {
         Say "This will UPDATE your existing Workshop item ($((Get-Content $idFile -Raw).Trim()))."
     } else {
         Say "This will create a NEW Workshop item on your Steam account."
+        Say ""
+        Say "Have you uploaded this mod before? Then STOP: copy the file workshop\mod_id.txt from" "Yellow"
+        Say "the folder you uploaded from into this folder's workshop folder first. Without it," "Yellow"
+        Say "Steam gets a second, duplicate copy of the mod instead of an update." "Yellow"
+        $confirm = (Read-Host "Type NEW to create a new Workshop item, or anything else to stop").Trim()
+        if ($confirm -ne "NEW") { Say "Stopped. Nothing was uploaded."; return }
     }
 
     Say ""
@@ -205,6 +211,7 @@ function Invoke-Upload {
     $id = ""
     if (Test-Path $idFile) { $id = (Get-Content $idFile -Raw).Trim() }
     $url = "https://steamcommunity.com/sharedfiles/filedetails/?id=$id"
+    $legal = "https://steamcommunity.com/sharedfiles/workshoplegalagreement"
 
     Write-Host ""
     Good "Done! Your mod is on the Steam Workshop:"
@@ -214,11 +221,15 @@ function Invoke-Upload {
     Say "  * Keep this folder. The file workshop\mod_id.txt remembers your Workshop item," "Yellow"
     Say "    so future uploads update it instead of creating a duplicate." "Yellow"
     Say "  * If this is your first Workshop upload ever, Steam hides the item until you accept" "Yellow"
-    Say "    the Workshop agreement (a notice on the item page links to it)." "Yellow"
+    Say "    the Workshop agreement: $legal" "Yellow"
+    Say "  * Private items only show up when you're logged in, so the page opens in the Steam app." "Yellow"
+    Say "    If you open the link in a web browser instead, log in to Steam there first." "Yellow"
     if ($choice -eq "1") {
         Say "  * It's private for now. Subscribe to it, try it in game, then run this again and pick 2." "Yellow"
     }
-    if ($id) { Start-Process $url }
+    # Open in the Steam client (already logged in) rather than a browser, where a private
+    # item shows "There was a problem accessing the item" unless you're signed in.
+    if ($id) { Start-Process "steam://url/CommunityFilePage/$id" }
 }
 
 try {

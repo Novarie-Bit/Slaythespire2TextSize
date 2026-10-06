@@ -1,8 +1,8 @@
 {
   "title": "Text Size Setting",
-  "description": "Adds a [b]Text Size[/b] option to the game's own settings menu so you can make text easier to read.\n\n[h2]How to use[/h2]\nOpen [b]Settings > General[/b] and use the [b]-[/b] / [b]+[/b] buttons on the [b]Text Size[/b] row. Pick anything from 70% to 200% in 10% steps. The change applies right away and is remembered next time you play.\n\n[h2]What it changes[/h2]\nText across the game's interface: menus, tooltips, the HUD, events and more. Text that has to fit inside a fixed-size box (such as card descriptions) can only grow as far as the box allows.\n\n[h2]Compatibility[/h2]\nNo other mods required. Doesn't change gameplay or saves. Unsubscribe to remove it and your text goes back to normal.",
+  "description": "Adds a [b]Text Size[/b] option to the game's own settings menu so you can make text easier to read.\n\n[h2]How to use[/h2]\nOpen [b]Settings > General[/b] and use the [b]-[/b] / [b]+[/b] buttons on the [b]Text Size[/b] row. Pick anything from 70% to 200% in 10% steps. The change applies right away and is remembered next time you play.\n\n[h2]What it changes[/h2]\nText across the game's interface: menus, tooltips, the HUD, events and more. Text never spills out of its button, box or frame: where space is tight, it grows only as much as fits.\n\n[h2]Compatibility[/h2]\nNo other mods required. Doesn't change gameplay or saves. Unsubscribe to remove it and your text goes back to normal.",
   "visibility": "private",
-  "changeNote": "Initial release.",
+  "changeNote": "Text no longer spills out of buttons, boxes and frames at large sizes: it grows as much as the space allows.",
   "tags": [],
   "dependencies": [],
   "contentDescriptors": []
