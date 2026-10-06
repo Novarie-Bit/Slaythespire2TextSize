@@ -71,15 +71,25 @@ public partial class TestRunner : Node
         Check("RichTextLabel tracked", rtl.HasMeta("textsize_mod_base_normal_font_size"), true);
         var rtlBase = rtl.GetMeta("textsize_mod_base_normal_font_size").AsInt32();
 
-        // Mega labels: one path goes through AddThemeFontSizeOverride, one doesn't.
-        var mega = new MegaLabel { Text = "mega" };
+        // Self-fitting game labels: the cap is raised, the game's own sizing keeps text in its box.
+        var mega = new MegaLabel { ClipText = true, MaxFontSize = 20, MinFontSize = 8 };
         root.AddChild(mega);
-        typeof(MegaLabel).GetMethod("SetFontSize", BindingFlags.NonPublic | BindingFlags.Instance)!.Invoke(mega, [22]);
-        Check("MegaLabel SetFontSize scaled once", mega.GetThemeFontSize("font_size"), 33);
+        mega.Size = new Vector2(300, 40);
+        Check("MegaLabel max font raised", mega.MaxFontSize, 30);
+        mega.SetTextAutoSize("Hello");
+        Check("MegaLabel short text uses raised max", mega.GetThemeFontSize("font_size"), 30);
+        var megaTight = new MegaLabel { ClipText = true, MaxFontSize = 20, MinFontSize = 8 };
+        root.AddChild(megaTight);
+        megaTight.Size = new Vector2(220, 40);
+        megaTight.SetTextAutoSize("A much longer line of text");
+        var tightSize = megaTight.GetThemeFontSize("font_size");
+        var tightWidth = megaTight.GetThemeFont("font").GetStringSize(megaTight.Text, HorizontalAlignment.Left, -1, tightSize).X;
+        Check("MegaLabel long text still fits its box", tightWidth <= 220, true);
+        Check("MegaLabel size was not enlarged after fitting", tightSize <= 30, true);
         var megaRich = new MegaRichTextLabel { Text = "mega rich" };
         root.AddChild(megaRich);
-        typeof(MegaRichTextLabel).GetMethod("SetFontSize", BindingFlags.NonPublic | BindingFlags.Instance)!.Invoke(megaRich, [20]);
-        Check("MegaRichTextLabel SetFontSize (non-override path) scaled", megaRich.GetThemeFontSize("normal_font_size"), 30);
+        megaRich.AddThemeFontSizeOverride("normal_font_size", 20);
+        Check("MegaRichTextLabel without auto-size scaled like a normal label", megaRich.GetThemeFontSize("normal_font_size"), 30);
 
         // Back to 100%: everything restored to base.
         TextSizeConfig.SetPercent(100);
@@ -88,7 +98,8 @@ public partial class TestRunner : Node
         Check("scene label restored", sceneLabel.GetThemeFontSize("font_size"), 24);
         Check("LabelSettings restored", settingsB.FontSize, 12);
         Check("rtl restored", rtl.GetThemeFontSize("normal_font_size"), rtlBase);
-        Check("mega restored", mega.GetThemeFontSize("font_size"), 22);
+        Check("mega max restored", mega.MaxFontSize, 20);
+        Check("mega re-fitted at normal size", mega.GetThemeFontSize("font_size"), 20);
 
         // Clamp/step behaviour.
         TextSizeConfig.SetPercent(999); Check("clamped max", TextSizeConfig.Percent, 200);
@@ -102,6 +113,78 @@ public partial class TestRunner : Node
         Check("saved to disk", cfg.GetValue("text", "percent", 0).AsInt32(), 130);
         TextSizeConfig.SetPercent(100);
 
+        // Text that would spill out of its frame at 200% is stepped back until it fits.
+        TextSizeConfig.SetPercent(200);
+        Label MakeLabel(string text, int size) { var l = new Label { Text = text }; l.AddThemeFontSizeOverride("font_size", size); return l; }
+        Control MakeFrame(float x, float y, float w, float h) { var f = new Control { Position = new Vector2(x, y), Size = new Vector2(w, h) }; root.AddChild(f); return f; }
+
+        var frame = MakeFrame(100, 100, 220, 40);
+        var framed = MakeLabel("Proceed to Map", 20);
+        framed.HorizontalAlignment = HorizontalAlignment.Center;
+        frame.AddChild(framed);
+        framed.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
+
+        var free = MakeLabel("Proceed to Map", 20);
+        root.AddChild(free);
+
+        var scrollArea = new ScrollContainer { Position = new Vector2(400, 100), Size = new Vector2(100, 40) };
+        root.AddChild(scrollArea);
+        var scrolled = MakeLabel("Proceed to Map", 20);
+        scrollArea.AddChild(scrolled);
+
+        var clipFrame = MakeFrame(100, 200, 150, 40);
+        var hbox = new HBoxContainer();
+        clipFrame.AddChild(hbox);
+        hbox.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
+        var clipped = MakeLabel("Proceed to Map", 20);
+        clipped.ClipText = true;
+        clipped.SizeFlagsHorizontal = Control.SizeFlags.ExpandFill;
+        hbox.AddChild(clipped);
+
+        var richFrame = MakeFrame(100, 300, 200, 60);
+        var boxed = new RichTextLabel { Text = "Gain 5 Block. Draw 1 card.", AutowrapMode = TextServer.AutowrapMode.Word, ScrollActive = false };
+        boxed.AddThemeFontSizeOverride("normal_font_size", 12);
+        richFrame.AddChild(boxed);
+        boxed.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
+
+        var shared = new LabelSettings();
+        shared.FontSize = 20;
+        var lsFrame = MakeFrame(100, 400, 220, 40);
+        var lsFramed = new Label { Text = "Proceed to Map", LabelSettings = shared };
+        lsFrame.AddChild(lsFramed);
+        lsFramed.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
+        var lsFree = new Label { Text = "x", LabelSettings = shared };
+        root.AddChild(lsFree);
+
+        for (var i = 0; i < 60; i++) await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+
+        var framedSize = framed.GetThemeFontSize("font_size");
+        Check("framed label no longer spills out", FitGuard.Overflows(framed), false);
+        Check("framed label shrank below 200%", framedSize < 40, true);
+        Check("framed label still bigger than normal", framedSize > 20, true);
+        Check("free label keeps full 200%", free.GetThemeFontSize("font_size"), 40);
+        Check("label in scroll area keeps full 200%", scrolled.GetThemeFontSize("font_size"), 40);
+        Check("clipped label no longer cut off", FitGuard.Overflows(clipped), false);
+        Check("clipped label shrank below 200%", clipped.GetThemeFontSize("font_size") < 40, true);
+        var boxedSize = boxed.GetThemeFontSize("normal_font_size");
+        Check("fixed-size rich text fits its box", FitGuard.Overflows(boxed), false);
+        Check("fixed-size rich text within normal..200%", boxedSize >= 12 && boxedSize < 24, true);
+        Check("shared LabelSettings copied for the cramped label", lsFramed.LabelSettings != shared, true);
+        Check("cramped LabelSettings label fits", FitGuard.Overflows(lsFramed), false);
+        Check("free label keeps shared LabelSettings at 200%", shared.FontSize, 40);
+
+        TextSizeConfig.SetPercent(100);
+        Check("framed label back to normal", framed.GetThemeFontSize("font_size"), 20);
+        Check("rich text back to normal", boxed.GetThemeFontSize("normal_font_size"), 12);
+        Check("copied LabelSettings back to normal", lsFramed.LabelSettings.FontSize, 20);
+
+        TextSizeConfig.SetPercent(200);
+        Check("framed label gets full size again right after the change", framed.GetThemeFontSize("font_size"), 40);
+        for (var i = 0; i < 60; i++) await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+        Check("framed label re-fitted after the change", framed.GetThemeFontSize("font_size"), framedSize);
+        foreach (var node in new Node[] { frame, free, scrollArea, clipFrame, richFrame, lsFrame, lsFree }) node.QueueFree();
+        TextSizeConfig.SetPercent(100);
+
         // Settings screen injection.
         var screen = new NSettingsScreen { Name = "Settings" };
         var scroll = new Control { Name = "Scroll", Size = new Vector2(1000, 600) };
@@ -111,7 +194,7 @@ public partial class TestRunner : Node
         screen.AddChild(scroll); scroll.AddChild(panel); panel.AddChild(content);
         panel.Owner = screen;
         var nativeRow = new MarginContainer { Name = "Fullscreen", CustomMinimumSize = new Vector2(0, 64) };
-        var nativeLabel = new RichTextLabel { Name = "Label", Text = "Fullscreen", FitContent = true };
+        var nativeLabel = new RichTextLabel { Name = "Label", Text = "Fullscreen", FitContent = true, SizeFlagsHorizontal = Control.SizeFlags.ExpandFill, CustomMinimumSize = new Vector2(400, 0) };
         nativeLabel.AddThemeFontSizeOverride("normal_font_size", 28);
         var nativeButton = new Button { Name = "Tick", Text = "x", FocusMode = Control.FocusModeEnum.All };
         var hb = new HBoxContainer(); hb.AddChild(nativeLabel); hb.AddChild(nativeButton); nativeRow.AddChild(hb);
