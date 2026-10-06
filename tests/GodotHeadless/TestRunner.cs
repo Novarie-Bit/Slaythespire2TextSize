@@ -139,7 +139,15 @@ public partial class TestRunner : Node
         // Text that would spill out of its frame at 200% is stepped back until it fits.
         TextSizeConfig.SetPercent(200);
         Label MakeLabel(string text, int size) { var l = new Label { Text = text }; l.AddThemeFontSizeOverride("font_size", size); return l; }
-        Control MakeFrame(float x, float y, float w, float h) { var f = new Control { Position = new Vector2(x, y), Size = new Vector2(w, h) }; root.AddChild(f); return f; }
+        // A frame you can see: a plain control with a background picture filling it, like a button or banner.
+        Control MakeFrame(float x, float y, float w, float h)
+        {
+            var f = new Control { Position = new Vector2(x, y), Size = new Vector2(w, h) };
+            var bg = new ColorRect { Name = "Bg", Color = new Color(0.2f, 0.2f, 0.25f), Size = new Vector2(w, h) };
+            f.AddChild(bg);
+            root.AddChild(f);
+            return f;
+        }
 
         var frame = MakeFrame(100, 100, 220, 40);
         var framed = MakeLabel("Proceed to Map", 20);
@@ -187,8 +195,18 @@ public partial class TestRunner : Node
         tallFrame.AddChild(wrapper);
         wrapper.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
 
+        // Like a hover tooltip: text in a container inside an invisible holder the game sizes by hand.
+        var holder = new Control { Position = new Vector2(800, 100), Size = new Vector2(220, 40) };
+        root.AddChild(holder);
+        var tipBox = new VBoxContainer();
+        holder.AddChild(tipBox);
+        var tipText = MakeLabel("Vulnerable: takes 50% more damage", 20);
+        tipBox.AddChild(tipText);
+
         for (var i = 0; i < 150; i++) await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
 
+        Check("tooltip-style text in an invisible holder keeps full 200%", tipText.GetThemeFontSize("font_size"), 40);
+        Check("tooltip-style text is visible", tipText.SelfModulate.A, 1f);
         Check("label in a tall frame wrapped instead of shrinking", wrapper.AutowrapMode != TextServer.AutowrapMode.Off, true);
         Check("wrapped label keeps full 200%", wrapper.GetThemeFontSize("font_size"), 40);
         Check("wrapped label fits its frame", FitGuard.Overflows(wrapper), false);
@@ -216,9 +234,12 @@ public partial class TestRunner : Node
 
         TextSizeConfig.SetPercent(200);
         Check("framed label gets full size again right after the change", framed.GetThemeFontSize("font_size"), 40);
-        for (var i = 0; i < 150; i++) await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
-        Check("framed label re-fitted after the change", framed.GetThemeFontSize("font_size"), framedSize);
-        foreach (var node in new Node[] { frame, free, scrollArea, clipFrame, richFrame, lsFrame, lsFree, tallFrame }) node.QueueFree();
+        await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+        Check("text is hidden while its size is being fitted (no big-then-small flash)", framed.SelfModulate.A, 0f);
+        for (var i = 0; i < 15; i++) await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+        Check("fitting finishes within 15 frames", framed.GetThemeFontSize("font_size"), framedSize);
+        Check("text is shown again once it fits", framed.SelfModulate.A, 1f);
+        foreach (var node in new Node[] { frame, free, scrollArea, clipFrame, richFrame, lsFrame, lsFree, tallFrame, holder }) node.QueueFree();
         TextSizeConfig.SetPercent(100);
 
         // A card in hand: tilted, scaled, drawn into a cached off-screen viewport, and the
@@ -226,6 +247,7 @@ public partial class TestRunner : Node
         var cardViewport = new SubViewport { Size = new Vector2I(800, 800), RenderTargetUpdateMode = SubViewport.UpdateMode.Disabled };
         root.AddChild(cardViewport);
         var card = new Control { Position = new Vector2(300, 300), Size = new Vector2(300, 420), Rotation = 0.35f, Scale = new Vector2(0.8f, 0.8f) };
+        card.AddChild(new ColorRect { Name = "Bg", Color = new Color(0.3f, 0.2f, 0.2f), Size = new Vector2(300, 420) });
         cardViewport.AddChild(card);
         var cardText = MakeLabel("Block 5", 20);
         card.AddChild(cardText);
@@ -239,6 +261,64 @@ public partial class TestRunner : Node
         Check("tilted card text not mistaken for spilling over", FitGuard.Overflows(cardText), false);
         Check("tilted card text grows to 200% mid-battle", cardText.GetThemeFontSize("font_size"), 40);
         cardViewport.QueueFree();
+        TextSizeConfig.SetPercent(100);
+
+        // "?" room: story text above option buttons, laid out on a full-screen event screen.
+        // At 200% the story mustn't push the options off the bottom of the screen.
+        TextSizeConfig.SetPercent(100);
+        var eventRoot = new Control { Size = new Vector2(1920, 1080) };
+        root.AddChild(eventRoot);
+        var eventColumn = new VBoxContainer { Position = new Vector2(1000, 200), CustomMinimumSize = new Vector2(600, 0) };
+        eventRoot.AddChild(eventColumn);
+        var story = new RichTextLabel
+        {
+            Text = string.Concat(Enumerable.Repeat("You find an old shrine covered in moss. A faint voice asks for an offering. ", 9)),
+            FitContent = true,
+            AutowrapMode = TextServer.AutowrapMode.WordSmart,
+            CustomMinimumSize = new Vector2(600, 0),
+        };
+        story.AddThemeFontSizeOverride("normal_font_size", 20);
+        eventColumn.AddChild(story);
+        var options = new List<Button>();
+        foreach (var option in new[] { "[Pray] Gain 5 Max HP", "[Desecrate] Gain 100 Gold", "[Leave]" })
+        {
+            var button = new Button { Text = option, CustomMinimumSize = new Vector2(600, 60) };
+            eventColumn.AddChild(button);
+            options.Add(button);
+        }
+
+        // Designed to scroll: a long list that already runs off the screen at normal size.
+        var longList = new VBoxContainer { Position = new Vector2(100, 100) };
+        eventRoot.AddChild(longList);
+        var longText = MakeLabel(string.Join("\n", Enumerable.Range(1, 60).Select(n => $"Line {n}")), 20);
+        longList.AddChild(longText);
+
+        // A panel that slides in from below the screen and ends up with plenty of room.
+        var sliding = new VBoxContainer { Position = new Vector2(100, 1300) };
+        eventRoot.AddChild(sliding);
+        var slidingText = MakeLabel("Rewards", 20);
+        sliding.AddChild(slidingText);
+
+        for (var i = 0; i < 5; i++) await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+        Check("event options fit at normal size", options[^1].GetGlobalRect().End.Y <= 1080, true);
+
+        TextSizeConfig.SetPercent(200);
+        for (var y = 1300f; y > 400f; y -= 40f)
+        {
+            sliding.Position = new Vector2(100, y);
+            await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+        }
+        for (var i = 0; i < 60; i++) await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+
+        var storySize = story.GetThemeFontSize("normal_font_size");
+        Check("event options stay on screen at 200%", options[^1].GetGlobalRect().End.Y <= 1082, true);
+        Check("event story text still bigger than normal", storySize > 20, true);
+        Check("event story text shrank only as much as needed", storySize < 40, true);
+        Check("event story text is visible", story.SelfModulate.A, 1f);
+        Check("a list built to scroll keeps full 200%", longText.GetThemeFontSize("font_size"), 40);
+        Check("a list built to scroll is visible", longText.SelfModulate.A, 1f);
+        Check("a panel sliding in keeps full 200%", slidingText.GetThemeFontSize("font_size"), 40);
+        eventRoot.QueueFree();
         TextSizeConfig.SetPercent(100);
 
         // Easy-to-read font.

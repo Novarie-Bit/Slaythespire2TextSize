@@ -97,7 +97,7 @@ To build against a real install instead, use `scripts/package.ps1 -GameDir "...\
 
 Every font size the game sets is stored on its node as the base size and replaced with the scaled size. Sizes baked into scenes and themes are picked up when a node enters the scene tree. Changing the setting re-applies everything from the stored base sizes, so changes never compound.
 
-**Keeping text inside its frame:** the game's self-fitting labels get a higher maximum size, and the game keeps them inside their box. Any other text that gets cut off or sticks out of its frame (the nearest parent that isn't a layout container) is handled by `FitGuard.cs`. A one-line label sitting directly on a frame with room for another line wraps instead of shrinking. Otherwise the text steps down 5% at a time, never below normal size, until it fits.
+**Keeping text inside its frame:** the game's self-fitting labels get a higher maximum size, and the game keeps them inside their box. Any other text that gets cut off, sticks out of a *visible* frame (a parent that draws a picture, panel, colour or button behind it), or pushes its layout off the screen (like an event's story text pushing its options down) is handled by `FitGuard.cs`. A one-line label sitting directly on a frame with room for another line wraps. Otherwise the largest size that fits is found in a few frames while the text is hidden, so it never flashes big and then shrinks. Layouts that run off-screen even at normal size are treated as scrolling by design and left at full size.
 
 ### Testing
 
